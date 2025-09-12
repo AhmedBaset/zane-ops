@@ -7,6 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
 import { Button, SubmitButton } from "~/components/ui/button";
 import {
   FieldSet,
+  FieldSetHidableInput,
   FieldSetInput,
   FieldSetLabel
 } from "~/components/ui/fieldset";
@@ -132,36 +133,7 @@ function EditGitlabAppForm({ app }: EditGitlabAppFormProps) {
           <FieldSetLabel className="flex items-center gap-0.5">
             Application Secret
           </FieldSetLabel>
-          <div className="flex items-center gap-2">
-            <FieldSetInput
-              type={!isSecretShown ? "password" : "text"}
-              defaultValue={app.secret}
-            />
-            <TooltipProvider>
-              <Tooltip delayDuration={0}>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    type="button"
-                    onClick={() => setIsSecretShown(!isSecretShown)}
-                    className="p-4"
-                  >
-                    {isSecretShown ? (
-                      <EyeOffIcon size={15} className="flex-none" />
-                    ) : (
-                      <EyeIcon size={15} className="flex-none" />
-                    )}
-                    <span className="sr-only">
-                      {isSecretShown ? "Hide" : "Show"} secret
-                    </span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {isSecretShown ? "Hide" : "Show"} secret
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
+          <FieldSetHidableInput defaultValue={app.secret} label="secret" />
         </FieldSet>
 
         <FieldSet

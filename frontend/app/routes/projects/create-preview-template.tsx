@@ -4,8 +4,6 @@ import {
   AlertCircleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  EyeIcon,
-  EyeOffIcon,
   LoaderIcon
 } from "lucide-react";
 import * as React from "react";
@@ -21,10 +19,11 @@ import {
   AccordionTrigger
 } from "~/components/ui/accordion";
 import { Alert, AlertDescription, AlertTitle } from "~/components/ui/alert";
-import { Button, SubmitButton } from "~/components/ui/button";
+import { SubmitButton } from "~/components/ui/button";
 import {
   FieldSet,
   FieldSetCheckbox,
+  FieldSetHidableInput,
   FieldSetInput,
   FieldSetLabel,
   FieldSetSelect,
@@ -37,12 +36,6 @@ import {
   SelectValue
 } from "~/components/ui/select";
 import { Separator } from "~/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger
-} from "~/components/ui/tooltip";
 import {
   type PreviewTemplate,
   type Project,
@@ -514,36 +507,10 @@ function EditPreviewTemplateForm({
                     Password
                   </FieldSetLabel>
 
-                  <div className="flex items-center gap-2">
-                    <FieldSetInput
-                      type={isPasswordShown ? "text" : "password"}
-                    />
-
-                    <TooltipProvider>
-                      <Tooltip delayDuration={0}>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            type="button"
-                            onClick={() => setPasswordShown(!isPasswordShown)}
-                            className="p-4"
-                          >
-                            {isPasswordShown ? (
-                              <EyeOffIcon size={15} className="flex-none" />
-                            ) : (
-                              <EyeIcon size={15} className="flex-none" />
-                            )}
-                            <span className="sr-only">
-                              {isPasswordShown ? "Hide" : "Show"} password
-                            </span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          {isPasswordShown ? "Hide" : "Show"} password
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
+                  <FieldSetHidableInput
+                    type={isPasswordShown ? "text" : "password"}
+                    label="password"
+                  />
                 </FieldSet>
               </>
             )}
