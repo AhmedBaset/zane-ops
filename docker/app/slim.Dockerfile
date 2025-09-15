@@ -50,7 +50,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /usr/local/bin/uv
 RUN uv sync --locked --no-dev --no-install-project \
  && uv sync --locked --no-dev --no-editable
 
-FROM install AS build-frontent
+FROM install AS build-frontend
 
 WORKDIR /app
 COPY ./frontend /app/
@@ -89,7 +89,7 @@ WORKDIR /app
 
 COPY ./backend/ /app
 # COPY ./frontend/build/client/ /app/staticfiles
-COPY --from=build-frontent /app/build /app/staticfiles
+COPY --from=build-frontend /app/build/client/ /app/staticfiles
 
 # Add daphne socket-based configuration
 RUN mkdir -p /app/logs/daphne
