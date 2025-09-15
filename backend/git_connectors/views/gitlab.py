@@ -79,15 +79,11 @@ class AuthorizeGitlabAppAPIView(APIView):
         app_id = self.kwargs["id"]
         try:
             gitapp = (
-                GitApp.objects.filter(
-                    Q(id=app_id) & (Q(github__isnull=False) | Q(gitlab__isnull=False))
-                )
-                .select_related("github", "gitlab")
-                .get()
+                GitApp.objects.filter(gitlab__id=id).select_related("gitlab").get()
             )
             if not gitapp.gitlab:
                 raise exceptions.NotFound(
-                    detail=f"A Gitlab app with the `{app_id}` does not exist."
+                    detail=f"Gitlab app `{app_id}` does not exist."
                 )
             if not gitapp.gitlab.is_installed:
                 raise exceptions.ValidationError(
