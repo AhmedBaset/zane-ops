@@ -79,7 +79,7 @@ class AuthorizeGitlabAppAPIView(APIView):
         app_id = self.kwargs["id"]
         try:
             gitapp = (
-                GitApp.objects.filter(gitlab__id=id).select_related("gitlab").get()
+                GitApp.objects.filter(gitlab__id=app_id).select_related("gitlab").get()
             )
             if not gitapp.gitlab:
                 raise exceptions.NotFound(
@@ -94,7 +94,6 @@ class AuthorizeGitlabAppAPIView(APIView):
             raise exceptions.NotFound(
                 detail=f"A Git app with the `{app_id}` does not exist."
             )
-
 
     @extend_schema(
         responses={200: AuthorizeGitlabAppResponseSerializer, 303: None},
