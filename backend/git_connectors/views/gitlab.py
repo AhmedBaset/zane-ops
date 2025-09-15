@@ -75,33 +75,26 @@ class CreateGitlabAppAPIView(APIView):
         return Response(data=serializer.data)
 
 class AuthorizeGitlabAppAPIView(APIView):
-    def get_queryset(self) -> GitlabApp: # type: ignore
-        app_id = self.kwargs["id"]
-        try:
-            gitapp = (
-                GitApp.objects.filter(gitlab__id=app_id).select_related("gitlab").get()
-            )
-            if not gitapp.gitlab:
-                raise exceptions.NotFound(
-                    detail=f"Gitlab app `{app_id}` does not exist."
-                )
-            if not gitapp.gitlab.is_installed:
-                raise exceptions.ValidationError(
-                    detail=f"The Gitlab app with the `{app_id}` is not installed."
-                )
-            return gitapp.gitlab
-        except GitApp.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A Git app with the `{app_id}` does not exist."
-            )
-
+    
     @extend_schema(
         responses={200: AuthorizeGitlabAppResponseSerializer, 303: None},
         operation_id="authorizeGitlabApp",
         summary="Authorize a gitlab app",
     )
     def get(self, request: Request, id: str):
-        gitlab = self.get_queryset()
+        app_id = self.kwargs["id"]
+        gitapp = GitApp.objects.filter(gitlab__id=app_id).select_related("gitlab").get()
+    
+        if not gitapp.gitlab:
+            raise exceptions.NotFound(
+                detail=f"Gitlab app `{app_id}` does not exist."
+            )
+        if not gitapp.gitlab.is_installed:
+            raise exceptions.ValidationError(
+                detail=f"The Gitlab app with the `{app_id}` is not installed."
+            )
+
+        gitlab = gitapp.gitlab
 
         current_access_token: str | None = None
         try:
