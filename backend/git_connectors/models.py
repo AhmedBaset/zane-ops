@@ -289,9 +289,10 @@ class GitlabApp(TimestampedModel):
 
         hook_name = f"ZaneOps-{self.id}"
         base_url = f"{self.gitlab_url}/api/v4/projects/{project_id}/hooks"
+        hook_url = f"{scheme}://{domain}/api/connectors/gitlab/webhook"
 
         request_body = {
-            "url": f"{scheme}://{domain}/api/connectors/gitlab/webhook",
+            "url": hook_url,
             "push_events": True,
             "merge_request_events": True,
             "name": hook_name,
@@ -307,7 +308,7 @@ class GitlabApp(TimestampedModel):
         response.raise_for_status()
 
         data: list[dict[str, int | str | bool]] = response.json()
-        hook_found = find_item_in_sequence(lambda hook: hook["name"] == hook_name, data)
+        hook_found = find_item_in_sequence(lambda hook: hook["url"] == hook_url, data)
         if not hook_found:
             response = requests.post(
                 base_url,
