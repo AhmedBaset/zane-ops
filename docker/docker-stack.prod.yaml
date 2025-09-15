@@ -68,7 +68,7 @@ services:
       start_period: 5s
       retries: 3
   app:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${LOCAL_FIRST_VERSION:-$IMAGE_VERSION}
     deploy:
       replicas: 1
       update_config:

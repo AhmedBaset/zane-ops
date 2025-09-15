@@ -63,6 +63,10 @@ export interface paths {
   "/api/connectors/gitlab/{id}/": {
     get: operations["connectors_gitlab_retrieve"];
   };
+  "/api/connectors/gitlab/{id}/authorize/": {
+    /** Authorize a gitlab app */
+    get: operations["authorizeGitlabApp"];
+  };
   "/api/connectors/gitlab/{id}/sync-repositories/": {
     /** Sync GitLab repositories for a GitLab application */
     put: operations["syncGitlabRepos"];
@@ -488,6 +492,10 @@ export interface components {
     };
     AuthedSuccessResponse: {
       user: components["schemas"]["User"];
+    };
+    AuthorizeGitlabAppErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    AuthorizeGitlabAppResponse: {
+      access_token: string;
     };
     AutoUpdateRequestRequest: {
       desired_version: string;
@@ -5995,6 +6003,45 @@ export interface operations {
       400: {
         content: {
           "application/json": components["schemas"]["ConnectorsGitlabRetrieveErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Authorize a gitlab app */
+  authorizeGitlabApp: {
+    parameters: {
+      path: {
+        id: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["AuthorizeGitlabAppResponse"];
+        };
+      };
+      /** @description No response body */
+      303: {
+        content: never;
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["AuthorizeGitlabAppErrorResponse400"];
         };
       };
       401: {

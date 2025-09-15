@@ -5,12 +5,15 @@ import requests
 from rest_framework.views import APIView
 from rest_framework.generics import RetrieveAPIView
 from rest_framework import exceptions
+from django.db.models import Q
+
 from ..serializers import (
     CreateGitlabAppRequestSerializer,
     CreateGitlabAppResponseSerializer,
     GitlabAppUpdateRequestSerializer,
     GitlabAppUpdateResponseSerializer,
     SetupGitlabAppQuerySerializer,
+    AuthorizeGitlabAppResponseSerializer,
     GitlabAppSerializer,
     GitlabWebhookEventSerializer,
     GitlabWebhookPushEventRequestSerializer,
@@ -70,6 +73,84 @@ class CreateGitlabAppAPIView(APIView):
 
         serializer = CreateGitlabAppResponseSerializer(dict(state=cache_id))
         return Response(data=serializer.data)
+
+class AuthorizeGitlabAppAPIView(APIView):
+    def get_queryset(self) -> GitlabApp: # type: ignore
+        app_id = self.kwargs["id"]
+        try:
+            gitapp = (
+                GitApp.objects.filter(
+                    Q(id=app_id) & (Q(github__isnull=False) | Q(gitlab__isnull=False))
+                )
+                .select_related("github", "gitlab")
+                .get()
+            )
+            if not gitapp.gitlab:
+                raise exceptions.NotFound(
+                    detail=f"A Gitlab app with the `{app_id}` does not exist."
+                )
+            if not gitapp.gitlab.is_installed:
+                raise exceptions.ValidationError(
+                    detail=f"The Gitlab app with the `{app_id}` is not installed."
+                )
+            return gitapp.gitlab
+        except GitApp.DoesNotExist:
+            raise exceptions.NotFound(
+                detail=f"A Git app with the `{app_id}` does not exist."
+            )
+
+
+    @extend_schema(
+        responses={200: AuthorizeGitlabAppResponseSerializer, 303: None},
+        operation_id="authorizeGitlabApp",
+        summary="Authorize a gitlab app",
+    )
+    def get(self, request: Request, id: str):
+        gitlab = self.get_queryset()
+
+        current_access_token: str | None = None
+        try:
+            current_access_token = gitlab.ensure_fresh_access_token(gitlab)
+            return Response(
+                AuthorizeGitlabAppResponseSerializer(
+                    access_token=current_access_token
+                ),
+                status=status.HTTP_200_OK,
+            )
+        except requests.HTTPError as e:
+            if e.response.status_code == 400:
+                raise BadRequest("invalid Gitlab app configuration")
+            else:
+                raise
+        except Exception as e:
+            current_access_token = None
+
+        # Make the state, like in cration
+        url = urlparse(gitlab.gitlab_url)
+
+        cache_id = f"{GitlabApp.UPDATE_STATE_CACHE_PREFIX}:{generate_random_chars(32)}"
+        cache_data = dict({})
+        cache_data["gitlab_url"] = f"{url.scheme}://{url.netloc}"
+        cache.set(
+            cache_id,
+            cache_data,
+            timeout=int(timedelta(minutes=10).total_seconds()),
+        )
+
+        redirect_url = f"{gitlab.gitlab_url}/oauth/authorize"
+        params = {
+            "client_id": gitlab.app_id,
+            "redirect_uri": gitlab.redirect_uri,
+            "response_type": "code",
+            "state": cache_id,
+            "scope": "api read_user read_repository",
+        }
+        redirect_url += "?" + urlencode(params, doseq=True)
+        return Response(
+            status=status.HTTP_303_SEE_OTHER,
+            headers={"Location": redirect_url},
+            data=None,
+        )
 
 
 class SetupGitlabAppAPIView(APIView):

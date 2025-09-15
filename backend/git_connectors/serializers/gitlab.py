@@ -46,6 +46,8 @@ class CreateGitlabAppRequestSerializer(serializers.Serializer):
 class CreateGitlabAppResponseSerializer(serializers.Serializer):
     state = serializers.CharField()
 
+class AuthorizeGitlabAppResponseSerializer(serializers.Serializer):
+    access_token = serializers.CharField()
 
 class SetupGitlabAppQuerySerializer(serializers.Serializer):
     code = serializers.CharField()

@@ -61,6 +61,11 @@ urlpatterns = [
         name="gitlab.create",
     ),
     re_path(
+        rf"^gitlab/(?P<id>{GitlabApp.ID_PREFIX}[a-zA-Z0-9]+)/authorize/?$",
+        views.AuthorizeGitlabAppAPIView.as_view(),
+        name="gitlab.authorize",
+    ),
+    re_path(
         r"^gitlab/setup/?$",
         views.SetupGitlabAppAPIView.as_view(),
         name="gitlab.setup",

@@ -71,6 +71,18 @@ setup: ### Launch initial setup before installing zaneops
 	@echo "Step 5️⃣ Done ✅"
 	@echo "Setup finished 🏁"
 
+
+IMAGE ?= ghcr.io/zane-ops/app
+IMAGE_VERSION ?= $(shell [ -f .env ] && sed -n 's/^IMAGE_VERSION=//p' .env || echo "latest")
+LOCAL_VERSION ?= $(shell [ -f .env ] && sed -n 's/^LOCAL_VERSION=//p' .env || echo "latest")
+LOCAL_FIRST_VERSION := $(if $(LOCAL_VERSION),$(LOCAL_VERSION),$(IMAGE_VERSION))
+IMAGE_TAG := $(IMAGE):$(LOCAL_FIRST_VERSION)
+.PHONY: setup deploy build-local build-and-push
+# helper target: build locally (no push)
+build-local: ### Build the app image locally (no push). Use on manager node if you won't push to registry.
+        @echo "Building local image: $(IMAGE_TAG)"
+        docker build -t $(IMAGE_TAG) -f ./repo/docker/app/slim.Dockerfile --build-arg COMMIT_SHA=$(git -C ./repo r>
+
 deploy: ### Install and deploy zaneops based on MODE (https or http)
 	@set -a; . ./.env; set +a; \
 	if [ "$$MODE" = "https" ]; then \
