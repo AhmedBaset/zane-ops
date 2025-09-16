@@ -328,11 +328,11 @@ class GitlabApp(TimestampedModel):
         return
 
     @classmethod
-    @cache_result(
-        # access tokens on gitlab are valid for only up to 2 hours,
-        # so we store it for 1 min less to not use an invalid token
-        timeout=timedelta(hours=1, minutes=59)
-    )
+    # @cache_result(
+    #     # access tokens on gitlab are valid for only up to 2 hours,
+    #     # so we store it for 1 min less to not use an invalid token
+    #     timeout=timedelta(hours=1, minutes=59)
+    # )
     def ensure_fresh_access_token(cls, app: "GitlabApp") -> str:
         assert app.is_installed
 
