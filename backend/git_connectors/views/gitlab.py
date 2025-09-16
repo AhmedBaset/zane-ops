@@ -264,9 +264,11 @@ class TestGitlabAppAPIView(APIView):
             access_token = GitlabApp.ensure_fresh_access_token(gl_app)
         except requests.HTTPError as e:
             if e.response.status_code == 400:
-                raise exceptions.ValidationError(
-                    detail="Invalid Gitlab app configuration",
-                    code=424,
+                return Response(
+                    exceptions.ValidationError(
+                        detail="Invalid Gitlab app configuration",
+                        code=424,
+                    )
                 )
             else:
                 raise e

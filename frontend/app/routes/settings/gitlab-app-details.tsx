@@ -237,7 +237,7 @@ export async function clientAction({
 async function testGitlabAppConnection(
   params: Route.ClientActionArgs["params"]
 ) {
-  const { data, error } = await apiClient.GET(
+  const { data, error, response } = await apiClient.GET(
     "/api/connectors/gitlab/{id}/test/",
     {
       params: {
@@ -245,6 +245,22 @@ async function testGitlabAppConnection(
       }
     }
   );
+
+  if (response.status === 424) {
+    const app = queryClient.getQueryData(
+      gitAppsQueries.gitlab(params.id).queryKey
+    )!;
+
+    const redirectURL = new URL(`${app.gitlab_url}/oauth/authorize`);
+
+    redirectURL.searchParams.set("client_id", app.app_id);
+    redirectURL.searchParams.set("redirect_uri", app.redirect_uri);
+    redirectURL.searchParams.set("response_type", "code");
+    redirectURL.searchParams.set("state", app.sta);
+    redirectURL.searchParams.set("scope", "api read_user read_repository");
+
+    throw redirect(redirectURL.toString());
+  }
 
   if (error) {
     const fullErrorMessage = error.errors.map((err) => err.detail).join(" ");
