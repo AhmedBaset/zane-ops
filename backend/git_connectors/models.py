@@ -12,6 +12,7 @@ import asyncio
 import jwt
 from datetime import timedelta
 import requests
+from rest_framework import status
 
 from zane_api.models.base import TimestampedModel
 import hashlib
@@ -309,9 +310,10 @@ class GitlabApp(TimestampedModel):
 
         hook_name = f"ZaneOps-{self.id}"
         base_url = f"{self.gitlab_url}/api/v4/projects/{project_id}/hooks"
+        hook_url = f"{scheme}://{domain}/api/connectors/gitlab/webhook"
 
         request_body = {
-            "url": f"{scheme}://{domain}/api/connectors/gitlab/webhook",
+            "url": hook_url,
             "push_events": True,
             "merge_requests_events": True,
             "name": hook_name,
@@ -327,7 +329,7 @@ class GitlabApp(TimestampedModel):
         response.raise_for_status()
 
         data: list[dict[str, int | str | bool]] = response.json()
-        hook_found = find_item_in_sequence(lambda hook: hook["name"] == hook_name, data)
+        hook_found = find_item_in_sequence(lambda hook: hook["url"] == hook_url, data)
         if not hook_found:
             response = requests.post(
                 base_url,
@@ -350,10 +352,13 @@ class GitlabApp(TimestampedModel):
     @cache_result(
         # access tokens on gitlab are valid for only up to 2 hours,
         # so we store it for 1 min less to not use an invalid token
-        timeout=timedelta(hours=1, minutes=59)
+        # timeout=timedelta(hours=1, minutes=59)
+        timeout=timedelta(hours=0, minutes=1)
     )
     def ensure_fresh_access_token(cls, app: "GitlabApp") -> str:
         assert app.is_installed
+
+        print(f"Refreshing gitlab access token for {app.id}")
 
         response = requests.post(
             f"{app.gitlab_url}/oauth/token",
@@ -366,13 +371,17 @@ class GitlabApp(TimestampedModel):
             ),
         )
 
-        response.raise_for_status()
+        if not status.is_success(response.status_code):
+            raise Exception(f"Error when trying to refresh gitlab access token: {response.content}")
 
         data = response.json()
 
         # update the refresh token
         app.refresh_token = data["refresh_token"]
         app.save()
+
+        print(f"Refreshed gitlab access token for {app.id} - access token: {data['access_token']} - refresh token: {data['refresh_token']}")
+
         return data["access_token"]
 
     @classmethod
