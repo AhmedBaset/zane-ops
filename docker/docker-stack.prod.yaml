@@ -53,6 +53,7 @@ services:
         published: 443
         protocol: tcp
         mode: host
+        
     volumes:
       - caddy-data:/data
       - caddy-config:/config
@@ -71,7 +72,7 @@ services:
       start_period: 5s
       retries: 3
   zane-app:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION}
     deploy:
       replicas: 1
       update_config:
@@ -203,7 +204,7 @@ services:
     networks:
       - zane
   zane-temporal-main-worker:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION}
     command: /bin/bash -l -c "/app/scripts/run_worker.sh"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -240,7 +241,7 @@ services:
     networks:
       - zane
   zane-temporal-schedule-worker:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION}
     command: /bin/bash -l -c "/app/scripts/run_worker.sh"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro

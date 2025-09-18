@@ -50,13 +50,46 @@ COPY --from=ghcr.io/astral-sh/uv:0.7.3 /uv /usr/local/bin/uv
 RUN uv sync --locked --no-dev --no-install-project \
  && uv sync --locked --no-dev --no-editable
 
+FROM install AS build-frontend
+
+WORKDIR /app
+COPY ./frontend /app/
+
+ENV SHELL bash
+ENV PNPM_HOME=/usr/local/bin
+
+ENV NODE_VERSION=22.19.0
+RUN apt install -y curl
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+ENV NVM_DIR=/root/.nvm
+RUN . "$NVM_DIR/nvm.sh" && nvm install ${NODE_VERSION}
+RUN . "$NVM_DIR/nvm.sh" && nvm use v${NODE_VERSION}
+RUN . "$NVM_DIR/nvm.sh" && nvm alias default v${NODE_VERSION}
+ENV PATH="/root/.nvm/versions/node/v${NODE_VERSION}/bin/:${PATH}"
+ARG COMMIT_SHA
+ENV COMMIT_SHA=$COMMIT_SHA
+
+
+RUN PNPM_VERSION=8.15.9 \
+  && ARCH="$(uname -m | grep -q 'aarch64' && echo 'arm64' || echo 'x64')" \
+  && PLATFORM="linux" \
+  && wget -qO /usr/local/bin/pnpm "https://github.com/pnpm/pnpm/releases/download/v${PNPM_VERSION}/pnpm-${PLATFORM}-${ARCH}" \
+  && chmod +x /usr/local/bin/pnpm
+#RUN wget -qO- https://get.pnpm.io/install.sh | ENV="$HOME/.shrc" PNPM_HOME="/usr/bin" PNPM_VERSION="8.15.9" SHELL="$(which sh)" sh -
+RUN pnpm setup
+RUN pnpm add -g @pnpm/exe
+RUN pnpm install --no-frozen-lockfile
+RUN pnpm run build
+
+
 # 4. Build: copy source
 FROM install AS build
 
 WORKDIR /app
 
 COPY ./backend/ /app
-COPY ./frontend/build/client/ /app/staticfiles
+# COPY ./frontend/build/client/ /app/staticfiles
+COPY --from=build-frontend /app/build/client/ /app/staticfiles
 
 # Add daphne socket-based configuration
 RUN mkdir -p /app/logs/daphne
