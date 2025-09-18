@@ -68,7 +68,7 @@ services:
       start_period: 5s
       retries: 3
   app:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION}
     deploy:
       replicas: 1
       update_config:
@@ -192,7 +192,7 @@ services:
     networks:
       - zane
   temporal-main-worker:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION}
     command: /bin/bash -l -c "/app/scripts/run_worker.sh"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -227,7 +227,7 @@ services:
     networks:
       - zane
   temporal-schedule-worker:
-    image: ghcr.io/zane-ops/app:${IMAGE_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION}
     command: /bin/bash -l -c "/app/scripts/run_worker.sh"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
