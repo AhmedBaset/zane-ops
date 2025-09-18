@@ -162,6 +162,21 @@ class LogIngestAPIView(APIView):
                                             continue
                         case ZaneServices.API | ZaneServices.WORKER:
                             # do nothing for now...
+                            simple_logs.append(
+                                RuntimeLogDto(
+                                    time=log["time"],
+                                    created_at=timezone.now(),
+                                    level=(
+                                        RuntimeLogLevel.INFO
+                                        if log["source"] == "stdout"
+                                        else RuntimeLogLevel.ERROR
+                                    ),
+                                    source=RuntimeLogSource.SERVICE,
+                                    service_id=service_id,
+                                    content=log["log"],
+                                    content_text=escape_ansi(log["log"]),
+                                )
+                            )
                             pass
                         case _:
                             deployment_id = json_tag["deployment_id"]
