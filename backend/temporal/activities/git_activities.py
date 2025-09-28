@@ -176,6 +176,7 @@ class GitActivities:
 
     @activity.defn
     async def upsert_gitlab_pull_request_comment(self, deployment: DeploymentDetails):
+        print(f"upsert_gitlab_pull_request_comment {deployment.service.slug=}")
         current_deployment = (
             await Deployment.objects.filter(
                 hash=deployment.hash, service_id=deployment.service.id
@@ -192,6 +193,7 @@ class GitActivities:
         )
 
         if current_deployment is None:
+            print(f"current_deployment is None {deployment.service.slug=}")
             return  # the service may have been deleted
 
         environment = current_deployment.service.environment
@@ -206,11 +208,13 @@ class GitActivities:
             or environment.preview_metadata.pr_number is None
             or environment.preview_metadata.pr_base_repo_url is None
         ):
+            print(f"Closing because of {environment.preview_metadata=}")
             return
 
         repo_url = environment.preview_metadata.pr_base_repo_url
         repository = await git_app.gitlab.repositories.filter(url=repo_url).afirst()
         if repository is None or repository.external_id is None:
+            print(f"Closing because of {repository=}")
             return
 
         preview_meta = environment.preview_metadata
@@ -249,6 +253,8 @@ class GitActivities:
         else:
             url = url_base
             response = requests.post(url_base, headers=headers, json=payload)
+
+        print(f"Request sent to {url=}, {response=}")
 
         # 4️⃣ Check the response
         if status.is_success(response.status_code):

@@ -2094,6 +2094,7 @@ class Environment(TimestampedModel):
                 service.healthcheck.delete()
 
         if self.preview_metadata is not None:
+            print(f"same: Deleting preview metadata for {self=}")
             self.preview_metadata.delete()
         docker_service_list.delete()
 

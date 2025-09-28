@@ -322,13 +322,19 @@ class GitlabWebhookAPIView(APIView):
 
     @transaction.atomic()
     def post(self, request: Request):
+        print(f"Event: {request.headers.get('x-gitlab-event')}")
+        print(f"Request body: {request.data}")
         form = GitlabWebhookEventSerializer(
             data={
                 "event": request.headers.get("x-gitlab-event"),
                 "webhook_secret": request.headers.get("x-gitlab-token"),
             }
         )
-        form.is_valid(raise_exception=True)
+        try:
+            form.is_valid(raise_exception=True)
+        except serializers.ValidationError as e:
+            print(e)
+            raise e
 
         event = cast(ReturnDict, form.data)["event"]
         webhook_secret = cast(ReturnDict, form.data)["webhook_secret"]
@@ -797,6 +803,8 @@ class GitlabWebhookAPIView(APIView):
                             preview_metadata__auto_teardown=True,
                             preview_metadata__pr_number=merge_request["iid"],
                         ).select_related("project", "preview_metadata")
+
+                        print(f"Removing {len(matching_preview_envs)} matching preview environments {matching_preview_envs=}")
 
                         for environment in matching_preview_envs:
                             workflows_to_run.append(
