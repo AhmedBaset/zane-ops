@@ -13,7 +13,7 @@ from .base import InternalZaneAppPermission
 from ..utils import Colors, escape_ansi
 from datetime import datetime
 
-from .helpers import ZaneServices
+from .helpers import ZaneServices, get_project_with_permission_check
 from .serializers import (
     DockerContainerLogsResponseSerializer,
     DockerContainerLogsRequestSerializer,
@@ -364,8 +364,7 @@ class ServiceDeploymentRuntimeLogsAPIView(APIView):
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
+            project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -419,8 +418,7 @@ class ServiceDeploymentRuntimeLogsWithContextAPIView(APIView):
         time: str,
     ):
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
+            project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -476,7 +474,7 @@ class ServiceDeploymentBuildLogsAPIView(APIView):
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
         try:
-            project = Project.objects.get(slug=project_slug)
+            project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
 
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
