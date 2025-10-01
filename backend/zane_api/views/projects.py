@@ -56,6 +56,7 @@ from ..serializers import (
     ProjectSerializer,
     ErrorResponse409Serializer,
 )
+from ..services.permissions import ProjectPermissionService
 from temporal.client import TemporalClient
 from temporal.shared import (
     ProjectDetails,
@@ -79,7 +80,7 @@ class ProjectsListAPIView(ListCreateAPIView):
 
     def get_queryset(self) -> QuerySet[Project]:  # type: ignore
         queryset = (
-            Project.objects.filter(owner=self.request.user)
+            ProjectPermissionService.get_accessible_projects(self.request.user)
             .prefetch_related(
                 "environments",
             )
@@ -199,18 +200,35 @@ class ProjectsListAPIView(ListCreateAPIView):
 class ProjectDetailsView(APIView):
     serializer_class = ProjectSerializer
 
-    @extend_schema(
-        request=ProjectUpdateRequestSerializer,
-        operation_id="updateProject",
-        summary="Update a project",
-    )
-    def patch(self, request: Request, slug: str) -> Response:
+    def _get_project_with_permission_check(self, slug: str, permission: str) -> Project:
         try:
             project = Project.objects.get(slug=slug)
         except Project.DoesNotExist:
             raise exceptions.NotFound(
                 detail=f"A project with the slug `{slug}` does not exist"
             )
+        
+        # Check if user has access to the project
+        if not ProjectPermissionService.is_project_member(self.request.user, project):
+            raise exceptions.NotFound(
+                detail=f"A project with the slug `{slug}` does not exist"
+            )
+        
+        # Check specific permission
+        if not ProjectPermissionService.has_permission(self.request.user, project, permission):
+            raise exceptions.PermissionDenied(
+                detail="You do not have permission to perform this action"
+            )
+        
+        return project
+
+    @extend_schema(
+        request=ProjectUpdateRequestSerializer,
+        operation_id="updateProject",
+        summary="Update a project",
+    )
+    def patch(self, request: Request, slug: str) -> Response:
+        project = self._get_project_with_permission_check(slug, 'manage_project_settings')
 
         form = ProjectUpdateRequestSerializer(data=request.data)
         if form.is_valid(raise_exception=True):
@@ -229,14 +247,11 @@ class ProjectDetailsView(APIView):
 
     @extend_schema(operation_id="getSingleProject", summary="Get single project")
     def get(self, request: Request, slug: str) -> Response:
-        try:
-            project = (
-                Project.objects.filter(slug=slug).prefetch_related("environments").get()
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
-            )
+        project = self._get_project_with_permission_check(slug, 'view_project')
+        # Prefetch environments for the project
+        project = (
+            Project.objects.filter(id=project.id).prefetch_related("environments").get()
+        )
         response = ProjectSerializer(project)
         return Response(response.data)
 
@@ -249,8 +264,11 @@ class ProjectDetailsView(APIView):
     )
     @transaction.atomic()
     def delete(self, request: Request, slug: str) -> Response:
+        project = self._get_project_with_permission_check(slug, 'delete_project')
+        
+        # Get project with archived_version relation
         project = (
-            Project.objects.filter(slug=slug).select_related("archived_version")
+            Project.objects.filter(id=project.id).select_related("archived_version")
         ).first()
 
         if project is None:
@@ -315,6 +333,37 @@ class ProjectDetailsView(APIView):
 
 class ProjectServiceListAPIView(APIView):
 
+    def _get_project_and_environment_with_permission_check(self, slug: str, env_slug: str) -> tuple[Project, Environment]:
+        try:
+            project = Project.objects.get(slug=slug.lower())
+        except Project.DoesNotExist:
+            raise exceptions.NotFound(
+                detail=f"A project with the slug `{slug}` does not exist"
+            )
+        
+        # Check if user has access to the project
+        if not ProjectPermissionService.is_project_member(self.request.user, project):
+            raise exceptions.NotFound(
+                detail=f"A project with the slug `{slug}` does not exist"
+            )
+        
+        # Check view permission
+        if not ProjectPermissionService.has_permission(self.request.user, project, 'view_project'):
+            raise exceptions.PermissionDenied(
+                detail="You do not have permission to view this project"
+            )
+        
+        try:
+            environment = Environment.objects.get(
+                name=env_slug.lower(), project=project
+            )
+        except Environment.DoesNotExist:
+            raise exceptions.NotFound(
+                detail=f"An environment with the name `{env_slug}` does not exist in this project"
+            )
+        
+        return project, environment
+
     @extend_schema(
         parameters=[ServiceListParamSerializer],
         responses={
@@ -337,19 +386,7 @@ class ProjectServiceListAPIView(APIView):
         slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
-        try:
-            project = Project.objects.get(slug=slug.lower())
-            environment = Environment.objects.get(
-                name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
-            )
-        except Environment.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"An environment with the name `{env_slug}` does not exist in this project"
-            )
+        project, environment = self._get_project_and_environment_with_permission_check(slug, env_slug)
 
         # Prefetch related fields and use annotate to count volumes
         filters = Q(project=project) & Q(environment=environment)
