@@ -68,7 +68,7 @@ from temporal.workflows import (
     DeployGitServiceWorkflow,
     ArchiveGitServiceWorkflow,
 )
-from .helpers import diff_service_snapshots
+from .helpers import diff_service_snapshots, get_project_with_permission_check
 from temporal.helpers import generate_caddyfile_for_static_website
 
 
@@ -101,15 +101,10 @@ class CreateGitServiceAPIView(APIView):
         project_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'create_services')
         try:
-            project = Project.objects.get(slug=project_slug, owner=request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -336,8 +331,8 @@ class DeployGitServiceAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -427,8 +422,8 @@ class ReDeployGitServiceAPIView(APIView):
         deployment_hash: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -533,8 +528,8 @@ class ArchiveGitServiceAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'modify_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
