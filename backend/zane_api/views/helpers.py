@@ -4,6 +4,10 @@ from typing import Iterable
 from typing import cast
 
 from django.db.models import Q
+from django.contrib.auth import get_user_model
+from rest_framework import exceptions
+
+User = get_user_model()
 
 from ..dtos import (
     ConfigDto,
@@ -500,6 +504,26 @@ def diff_service_snapshots(
                             )
                         )
     return changes
+
+
+def get_project_with_permission_check(slug: str, user: User, permission: str = 'view_project'):
+    from ..models import Project
+    from ..services.permissions import ProjectPermissionService
+    
+    try:
+        project = Project.objects.get(slug=slug.lower())
+    except Project.DoesNotExist:
+        raise exceptions.NotFound(
+            detail=f"A project with the slug `{slug}` does not exist"
+        )
+    
+    if not ProjectPermissionService.has_permission(user, project, permission):
+        # Return 404 instead of 403 for security (don't reveal project existence)
+        raise exceptions.NotFound(
+            detail=f"A project with the slug `{slug}` does not exist"
+        )
+    
+    return project
 
 
 class ZaneServices:

@@ -21,6 +21,7 @@ from .base import ResourceConflict
 from .helpers import (
     compute_snapshot_excluding_change,
     diff_service_snapshots,
+    get_project_with_permission_check,
 )
 from .serializers import (
     BulkToggleServiceStateRequestSerializer,
@@ -110,15 +111,10 @@ class CreateDockerServiceAPIView(APIView):
         project_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'create_services')
         try:
-            project = Project.objects.get(slug=project_slug, owner=request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -205,14 +201,10 @@ class RequestServiceChangesAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'modify_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -548,14 +540,10 @@ class RequestServiceEnvChangesAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'modify_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -620,14 +608,10 @@ class CancelServiceChangesAPIView(APIView):
         change_id: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'modify_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -705,8 +689,8 @@ class DeployDockerServiceAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -722,10 +706,6 @@ class DeployDockerServiceAPIView(APIView):
                     "volumes", "ports", "urls", "env_variables", "changes", "configs"
                 )
             ).get()
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
-            )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
                 detail=f"An environment with the name `{env_slug}` does not exist in this project"
@@ -800,14 +780,10 @@ class RedeployDockerServiceAPIView(APIView):
         deployment_hash: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -921,10 +897,8 @@ class ServiceDetailsAPIView(RetrieveUpdateAPIView):
         service_slug = self.kwargs["slug"]
         env_slug = self.kwargs.get("env_slug", Environment.PRODUCTION_ENV_NAME)
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_project')
         try:
-            project = Project.objects.get(
-                slug=project_slug.lower(), owner=self.request.user
-            )
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -970,16 +944,7 @@ class ArchiveDockerServiceAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
-        project = (
-            Project.objects.filter(
-                slug=project_slug.lower(), owner=request.user
-            ).select_related("archived_version")
-        ).first()
-
-        if project is None:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist."
-            )
+        project = get_project_with_permission_check(project_slug, request.user, 'modify_services')
 
         environment = Environment.objects.filter(name=env_slug, project=project).first()
         if environment is None:
@@ -1092,14 +1057,10 @@ class ToggleServiceAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -1169,14 +1130,10 @@ class BulkToggleServicesAPIView(APIView):
         project_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(

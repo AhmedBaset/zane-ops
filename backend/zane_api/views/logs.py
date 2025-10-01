@@ -12,7 +12,7 @@ from .base import InternalZaneAppPermission
 from ..utils import Colors, escape_ansi
 from datetime import datetime
 
-from .helpers import ZaneServices
+from .helpers import ZaneServices, get_project_with_permission_check
 from .serializers import (
     DockerContainerLogsResponseSerializer,
     DockerContainerLogsRequestSerializer,
@@ -234,17 +234,13 @@ class ServiceHttpLogsFieldsAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
             service = Service.objects.get(
                 slug=service_slug, project=project, environment=environment
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist."
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -305,9 +301,8 @@ class ServiceHttpLogsAPIView(ListAPIView):
         service_slug = self.kwargs["service_slug"]
         env_slug = self.kwargs.get("env_slug") or Environment.PRODUCTION_ENV_NAME
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -315,10 +310,6 @@ class ServiceHttpLogsAPIView(ListAPIView):
                 slug=service_slug, project=project, environment=environment
             )
             return service.http_logs
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist."
-            )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
                 detail=f"An environment with the name `{env_slug}` does not exist in this project"
@@ -346,9 +337,8 @@ class ServiceSingleHttpLogAPIView(RetrieveAPIView):
         request_uuid = self.kwargs["request_uuid"]
         env_slug = self.kwargs.get("env_slug") or Environment.PRODUCTION_ENV_NAME
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
             environment = Environment.objects.get(name=env_slug, project=project)
             service = Service.objects.get(
                 slug=service_slug, project=project, environment=environment
@@ -390,9 +380,8 @@ class ServiceDeploymentRuntimeLogsAPIView(APIView):
         deployment_hash: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -498,9 +487,8 @@ class ServiceDeploymentHttpLogsFieldsAPIView(APIView):
         deployment_hash: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -575,8 +563,8 @@ class ServiceDeploymentHttpLogsAPIView(ListAPIView):
         deployment_hash = self.kwargs["deployment_hash"]
         env_slug = self.kwargs.get("env_slug") or Environment.PRODUCTION_ENV_NAME
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -621,9 +609,8 @@ class ServiceDeploymentSingleHttpLogAPIView(RetrieveAPIView):
         request_uuid = self.kwargs["request_uuid"]
         env_slug = self.kwargs.get("env_slug") or Environment.PRODUCTION_ENV_NAME
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
-
             environment = Environment.objects.get(name=env_slug, project=project)
             service = Service.objects.get(
                 slug=service_slug, project=project, environment=environment

@@ -45,6 +45,7 @@ from .base import (
     ResourceConflict,
     EMPTY_PAGINATED_RESPONSE,
 )
+from .helpers import get_project_with_permission_check
 from .serializers import (
     DockerServiceDeploymentFilterSet,
     DeploymentListPagination,
@@ -76,14 +77,10 @@ class RegenerateServiceDeployTokenAPIView(APIView):
         service_slug: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'modify_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -410,9 +407,8 @@ class CleanupDeploymentQueueAPIView(APIView):
         env_slug: str,
         service_slug: str,
     ) -> Response:
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -489,9 +485,8 @@ class CancelServiceDeploymentAPIView(APIView):
         deployment_hash: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, request.user, 'deploy_services')
         try:
-            project = Project.objects.get(slug=project_slug.lower(), owner=request.user)
-
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
@@ -591,17 +586,13 @@ class ServiceDeploymentsAPIView(ListAPIView):
         service_slug = self.kwargs["service_slug"]
         env_slug = self.kwargs.get("env_slug") or Environment.PRODUCTION_ENV_NAME
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_project')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
             service = Service.objects.get(
                 slug=service_slug, project=project, environment=environment
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist."
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -639,8 +630,8 @@ class ServiceDeploymentSingleAPIView(RetrieveAPIView):
         env_slug = self.kwargs.get("env_slug") or Environment.PRODUCTION_ENV_NAME
         deployment_hash = self.kwargs["deployment_hash"]
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_project')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )

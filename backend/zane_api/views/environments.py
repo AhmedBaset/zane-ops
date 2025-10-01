@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .base import ResourceConflict, BadRequest
+from .helpers import get_project_with_permission_check
 from .serializers import (
     CreateEnvironmentRequestSerializer,
     CloneEnvironmentRequestSerializer,
@@ -75,12 +76,7 @@ class CreateEnviromentAPIView(APIView):
     )
     @transaction.atomic()
     def post(self, request: Request, slug: str) -> Response:
-        try:
-            project = Project.objects.get(slug=slug.lower())
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
-            )
+        project = get_project_with_permission_check(slug, request.user, 'manage_environments')
 
         form = CreateEnvironmentRequestSerializer(data=request.data)
         form.is_valid(raise_exception=True)
@@ -122,13 +118,9 @@ class CloneEnviromentAPIView(APIView):
     )
     @transaction.atomic()
     def post(self, request: Request, slug: str, env_slug: str) -> Response:
+        project = get_project_with_permission_check(slug, request.user, 'manage_environments')
         try:
-            project = Project.objects.get(slug=slug.lower())
             current_environment = project.environments.get(name=env_slug.lower())
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
-            )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
                 detail=f"A env with the slug `{env_slug}` does not exist in this project"
@@ -201,8 +193,8 @@ class ReviewPreviewEnvDeployAPIView(APIView):
         summary="Get the preview deployment",
     )
     def get(self, request: Request, slug: str, env_slug: str) -> Response:
+        project = get_project_with_permission_check(slug, request.user, 'view_project')
         try:
-            project = Project.objects.get(slug=slug.lower())
             environment = (
                 Environment.objects.filter(
                     name=env_slug.lower(),
@@ -217,10 +209,6 @@ class ReviewPreviewEnvDeployAPIView(APIView):
                 )
                 .prefetch_related("variables")
                 .get()
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -238,8 +226,8 @@ class ReviewPreviewEnvDeployAPIView(APIView):
     )
     @transaction.atomic()
     def post(self, request: Request, slug: str, env_slug: str) -> Response:
+        project = get_project_with_permission_check(slug, request.user, 'manage_environments')
         try:
-            project = Project.objects.get(slug=slug.lower())
             environment = (
                 Environment.objects.filter(
                     name=env_slug.lower(),
@@ -256,10 +244,6 @@ class ReviewPreviewEnvDeployAPIView(APIView):
                 )
                 .prefetch_related("variables")
                 .get()
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -406,17 +390,13 @@ class EnvironmentDetailsAPIView(APIView):
         summary="Get a single environment",
     )
     def get(self, request: Request, slug: str, env_slug: str) -> Response:
+        project = get_project_with_permission_check(slug, request.user, 'view_project')
         try:
-            project = Project.objects.get(slug=slug.lower())
             environment = (
                 Environment.objects.filter(name=env_slug.lower(), project=project)
                 .select_related("preview_metadata")
                 .prefetch_related("variables")
                 .get()
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -431,17 +411,13 @@ class EnvironmentDetailsAPIView(APIView):
         summary="Update an environment",
     )
     def patch(self, request: Request, slug: str, env_slug: str) -> Response:
+        project = get_project_with_permission_check(slug, request.user, 'manage_environments')
         try:
-            project = Project.objects.get(slug=slug.lower())
             environment = (
                 Environment.objects.filter(name=env_slug.lower(), project=project)
                 .select_related("preview_metadata")
                 .prefetch_related("variables")
                 .get()
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -476,17 +452,13 @@ class EnvironmentDetailsAPIView(APIView):
     )
     @transaction.atomic()
     def delete(self, request: Request, slug: str, env_slug: str) -> Response:
+        project = get_project_with_permission_check(slug, request.user, 'manage_environments')
         try:
-            project = Project.objects.get(slug=slug.lower())
             environment = (
                 Environment.objects.filter(name=env_slug.lower(), project=project)
                 .select_related("preview_metadata")
                 .prefetch_related("variables", "services")
                 .get()
-            )
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{slug}` does not exist"
             )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
@@ -532,17 +504,13 @@ class SharedEnvVariablesViewSet(viewsets.ModelViewSet):
         env_slug = self.kwargs["env_slug"]
         pk = self.kwargs.get("pk")
 
+        project = get_project_with_permission_check(project_slug, self.request.user, 'manage_environments')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
             if pk is not None:
                 environment.variables.get(id=pk)  # type: ignore
-        except Project.DoesNotExist:
-            raise exceptions.NotFound(
-                detail=f"A project with the slug `{project_slug}` does not exist."
-            )
         except Environment.DoesNotExist:
             raise exceptions.NotFound(
                 detail=f"An environment with the name `{env_slug}` does not exist in this project"

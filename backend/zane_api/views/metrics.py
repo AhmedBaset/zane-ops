@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .serializers import ServiceMetricsQuery, ServiceMetricsResponseSerializer
+from .helpers import get_project_with_permission_check
 from ..models import (
     Project,
     Service,
@@ -47,8 +48,8 @@ class ServiceMetricsAPIView(APIView):
         env_slug=Environment.PRODUCTION_ENV_NAME,
         deployment_hash: str | None = None,
     ):
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_project')
         try:
-            project = Project.objects.get(slug=project_slug, owner=self.request.user)
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )
