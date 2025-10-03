@@ -47,8 +47,8 @@ services:
         zane.stack: "true"
         zane.role: "proxy"
     ports:
-      - target: 443
-        published: 443
+      - target: 80 # 443
+        published: 8080 # 443
         protocol: tcp
         mode: host
     volumes:
@@ -192,7 +192,7 @@ services:
     networks:
       - zane
   temporal-main-worker:
-    image: ghcr.io/zane-ops/app:${APP_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION:-$IMAGE_VERSION}
     command: /bin/bash -l -c "/app/scripts/run_worker.sh"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -227,7 +227,7 @@ services:
     networks:
       - zane
   temporal-schedule-worker:
-    image: ghcr.io/zane-ops/app:${APP_VERSION}
+    image: ghcr.io/zane-ops/app:${APP_VERSION:-$IMAGE_VERSION}
     command: /bin/bash -l -c "/app/scripts/run_worker.sh"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
@@ -313,6 +313,11 @@ services:
         limits:
           cpus: "1"
           memory: 1G
+    ports:
+      - target: 5432
+        published: 9010
+        protocol: tcp
+        mode: host
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
