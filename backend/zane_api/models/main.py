@@ -786,6 +786,7 @@ class Service(BaseService):
             [
                 f"{self.network_alias}.{settings.ZANE_INTERNAL_DOMAIN}",
                 self.network_alias,
+                f"net-{self.environment.id}.{self.slug}"
             ]
             if self.network_alias is not None
             else []
@@ -845,6 +846,11 @@ class Service(BaseService):
                 "key": "ZANE_PROJECT_ID",
                 "value": self.project_id,
                 "comment": "The id for the project this service belongs to",
+            },
+            {
+                "key": "ZANE_ENVIRONMENT_ID",
+                "value": self.environment.id,
+                "comment": "The ID of this environment this service belongs to",
             },
             {
                 "key": "ZANE_DEPLOYMENT_SLOT",
