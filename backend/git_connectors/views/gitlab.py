@@ -487,7 +487,7 @@ class GitlabWebhookAPIView(APIView):
                 head_branch_name = merge_request["source_branch"]
                 base_branch_name = merge_request["target_branch"]
 
-                is_fork = base_repository_url != head_repository_url
+                is_fork = base_repository_url != head_repository_url or head_branch_name.startswith("renovate/")
 
                 workflows_to_run: List[StartWorkflowArg] = []
                 workflows_signals: List[SignalWorkflowArg] = []
