@@ -573,7 +573,7 @@ class GitlabWebhookAPIView(APIView):
                                 ),
                             )
 
-                            if is_fork:
+                            if is_fork or head_branch_name.startswith("renovate/"):
                                 cloned_service = new_environment.services.get(
                                     slug=current_service.slug
                                 )
