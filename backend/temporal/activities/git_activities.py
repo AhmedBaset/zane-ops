@@ -326,9 +326,19 @@ class GitActivities:
                 https://docs.temporal.io/develop/python/cancellation#cancel-activity
                 """
                 while True:
-                    activity.heartbeat(
-                        "Heartbeat from `clone_repository_and_checkout_to_commit()`..."
-                    )
+                    try:
+                        # Send a heartbeat to Temporal. Protect this call so if it
+                        # raises (network issue, cancellation race, etc.) the loop
+                        # keeps running instead of dying silently which would stop
+                        # future heartbeats and cause a heartbeat timeout.
+                        activity.heartbeat(
+                            "Heartbeat from `clone_repository_and_checkout_to_commit()`..."
+                        )
+                    except Exception as e:
+                        # Log but swallow the exception so the heartbeat loop
+                        # continues. The outer activity will still be cancelled
+                        # or fail as appropriate.
+                        print(f"Warning: activity.heartbeat() raised: {e}")
                     await asyncio.sleep(0.1)
 
             heartbeat_task = asyncio.create_task(send_heartbeat())
