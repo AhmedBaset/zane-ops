@@ -445,21 +445,51 @@ class GitActivities:
                     source=RuntimeLogSource.BUILD,
                 )
                 try:
-                    checkout_task = asyncio.create_task(
-                        asyncio.to_thread(
-                            self.git_client.checkout_repository,
-                            repo,
-                            deployment.commit_sha or HEAD_COMMIT,
-                        )
+                    # Use a cancellable subprocess runner for checkout so we can
+                    # react to cancel_event and terminate the git process if
+                    # needed. Using GitPython's blocking checkout inside
+                    # a thread can't be interrupted cleanly.
+                    checkout_commit = deployment.commit_sha or HEAD_COMMIT
+                    checkout_cmd = (
+                        f"git -C {shlex.quote(build_location)} checkout {shlex.quote(checkout_commit)}"
                     )
+
+                    async def checkout_message_handler(message: str):
+                        await deployment_log(
+                            deployment=details.deployment,
+                            message=message,
+                            source=RuntimeLogSource.BUILD,
+                            error=message.startswith("ERROR:"),
+                        )
+
+                    checkout_runner = AyncSubProcessRunner(
+                        command=checkout_cmd,
+                        cancel_event=cancel_event,
+                        operation_name="git checkout",
+                        output_handler=checkout_message_handler,
+                    )
+
+                    checkout_task = asyncio.create_task(checkout_runner.run())
 
                     done_first, _ = await asyncio.wait(
                         [checkout_task, heartbeat_task],
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     if checkout_task in done_first:
-                        commit = checkout_task.result()
-                        print("Checkout task finished first ?")
+                        exit_code, _ = checkout_task.result()
+                        if exit_code != 0:
+                            await deployment_log(
+                                deployment=details.deployment,
+                                message=(
+                                    f"Failed to checkout the repository at commit {Colors.ORANGE}{(deployment.commit_sha or 'HEAD')[:7]}{Colors.ENDC} ❌"
+                                ),
+                                source=RuntimeLogSource.BUILD,
+                                error=True,
+                            )
+                            return None
+                        # Use GitPython to read the checked out commit metadata
+                        commit = repo.commit(checkout_commit)
+                        print("Checkout task finished ?")
                     else:
                         checkout_task.cancel()
                         await checkout_task
@@ -471,6 +501,7 @@ class GitActivities:
                         source=RuntimeLogSource.BUILD,
                         error=True,
                     )
+                    return None
                 else:
                     await deployment_log(
                         deployment=details.deployment,
