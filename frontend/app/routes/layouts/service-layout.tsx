@@ -16,7 +16,7 @@ import {
   RocketIcon,
   SettingsIcon
 } from "lucide-react";
-import { Link, Outlet, useLocation, useParams } from "react-router";
+import { Link, Outlet, useLocation, useParams, type href } from "react-router";
 import { NavLink } from "~/components/nav-link";
 import { StatusBadge } from "~/components/status-badge";
 import {
