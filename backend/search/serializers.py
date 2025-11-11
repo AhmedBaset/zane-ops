@@ -9,7 +9,7 @@ class RuntimeLogSerializer(serializers.Serializer):
     id = serializers.CharField()
     service_id = serializers.CharField(allow_null=True)
     deployment_id = serializers.CharField(allow_null=True)
-    time = serializers.DateTimeField()
+    time = serializers.DateTimeField(default_timezone="Africa/Cairo")
     timestamp = serializers.IntegerField()
     content = serializers.JSONField(allow_null=True)
     content_text = serializers.CharField(allow_null=True, allow_blank=True)
