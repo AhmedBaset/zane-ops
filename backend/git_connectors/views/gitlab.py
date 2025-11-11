@@ -486,7 +486,13 @@ class GitlabWebhookAPIView(APIView):
                 head_branch_name = merge_request["source_branch"]
                 base_branch_name = merge_request["target_branch"]
 
-                is_fork = base_repository_url != head_repository_url or head_branch_name.startswith("renovate/")
+                is_fork = base_repository_url != head_repository_url
+                
+                # I use git stacks most of the time, stacks aren't supposed to deploy until they are finished
+                # so let's make all previews require approval
+                should_require_approval_for_all = True
+
+                should_require_approval_for_preview = is_fork or head_branch_name.startswith("renovate/") or should_require_approval_for_all
 
                 workflows_to_run: List[StartWorkflowArg] = []
                 workflows_signals: List[SignalWorkflowArg] = []
@@ -554,7 +560,7 @@ class GitlabWebhookAPIView(APIView):
                                 auth_password=preview_template.auth_password,
                                 deploy_state=(
                                     PreviewEnvMetadata.PreviewDeployState.PENDING
-                                    if is_fork
+                                    if should_require_approval_for_preview
                                     else PreviewEnvMetadata.PreviewDeployState.APPROVED
                                 ),
                                 pr_number=merge_request["iid"],
@@ -572,7 +578,7 @@ class GitlabWebhookAPIView(APIView):
                                 ),
                             )
 
-                            if is_fork:
+                            if should_require_approval_for_preview:
                                 cloned_service = new_environment.services.get(
                                     slug=current_service.slug
                                 )

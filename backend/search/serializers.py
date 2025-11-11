@@ -16,7 +16,7 @@ class RuntimeLogSerializer(serializers.Serializer):
     stack_service_name = serializers.CharField(allow_null=True, required=False)
     # common args
     container_id = serializers.CharField(allow_null=True, required=False)
-    time = serializers.DateTimeField()
+    time = serializers.DateTimeField(default_timezone="Africa/Cairo")
     timestamp = serializers.IntegerField()
     content = serializers.JSONField(allow_null=True)
     content_text = serializers.CharField(allow_null=True, allow_blank=True)
