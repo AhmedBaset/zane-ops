@@ -990,13 +990,17 @@ class GitActivities:
         build_envs = get_build_environment_variables_for_deployment(details.deployment)
 
         build_envs["FORCE_COLOR"] = "true"
-        env_lines = [f"{key}={shlex.quote(value)}" for key, value in build_envs.items()]
+        sorted_envs = sorted(build_envs.items())
+        env_lines = [f"{key}={shlex.quote(value)}" for key, value in sorted_envs]
         env_file_contents = "\n".join(env_lines)
 
         # Add `.env` in the build context directory to be loaded by the Dockerfile if possible
         env_file_path = os.path.join(build_context_dir, ".env")
         with open(env_file_path, "w") as file:
             file.write(env_file_contents)
+
+        # Set a consistent timestamp between builds so Docker sees the file as unchanged if content is same
+        os.utime(env_file_path, (1000000000, 1000000000))
 
         return DockerfileBuilderGeneratedResult(
             build_context_dir=build_context_dir,
