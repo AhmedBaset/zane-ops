@@ -1004,6 +1004,13 @@ class GitActivities:
         # Set a consistent timestamp between builds so Docker sees the file as unchanged if content is same
         os.utime(env_file_path, (1000000000, 1000000000))
 
+        # Add .env.static that includes all variables except ZANE_DEPLOYMENT_HASH
+        static_env_file_path = os.path.join(build_context_dir, ".env.static")
+        with open(static_env_file_path, "w") as file:
+            file.write(env_file_contents.replace(f"ZANE_DEPLOYMENT_HASH={details.deployment.hash}", ""))
+        
+        os.utime(static_env_file_path, (1000000000, 1000000000))
+
         return DockerfileBuilderGeneratedResult(
             build_context_dir=build_context_dir,
             dockerfile_path=dockerfile_path,
