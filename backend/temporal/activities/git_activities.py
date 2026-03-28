@@ -1006,9 +1006,16 @@ class GitActivities:
 
         # Add .env.static that includes all variables except ZANE_DEPLOYMENT_HASH
         static_env_file_path = os.path.join(build_context_dir, ".env.static")
-        with open(static_env_file_path, "w") as file:
-            file.write(env_file_contents.replace(f"ZANE_DEPLOYMENT_HASH={details.deployment.hash}", ""))
+        VARS_TO_REMOVE = {"ZANE_DEPLOYMENT_HASH", "GIT_COMMIT_SHA"}
         
+        filtered_lines = [
+            line for line in env_file_contents.splitlines(keepends=True)
+            if not any(line.startswith(f"{var}=") for var in VARS_TO_REMOVE)
+        ]
+
+        with open(static_env_file_path, "w") as file:
+            file.writelines(filtered_lines)
+
         os.utime(static_env_file_path, (1000000000, 1000000000))
 
         return DockerfileBuilderGeneratedResult(
