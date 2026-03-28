@@ -146,6 +146,95 @@ class ProjectInvitation(TimestampedModel):
         return self.accepted_at is None and self.declined_at is None
 
 
+class ProjectMember(TimestampedModel):
+    """Model representing a user's membership in a project with a specific role."""
+    
+    class Role(models.TextChoices):
+        OWNER = "OWNER", _("Owner")
+        ADMIN = "ADMIN", _("Admin")
+        DEVELOPER = "DEVELOPER", _("Developer")
+        VIEWER = "VIEWER", _("Viewer")
+    
+    project = models.ForeignKey(
+        "Project", 
+        on_delete=models.CASCADE, 
+        related_name="members"
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE
+    )
+    role = models.CharField(
+        max_length=20, 
+        choices=Role.choices
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        related_name="sent_invitations"
+    )
+    
+    class Meta:
+        unique_together = ["project", "user"]
+        indexes = [
+            models.Index(fields=["project", "user"]),
+            models.Index(fields=["user"]),
+            models.Index(fields=["role"]),
+        ]
+    
+    def __str__(self):
+        return f"ProjectMember({self.user.username} - {self.role} in {self.project.slug})"
+
+
+class ProjectInvitation(TimestampedModel):
+    """Model representing an invitation for a user to join a project."""
+    
+    project = models.ForeignKey(
+        "Project", 
+        on_delete=models.CASCADE, 
+        related_name="invitations"
+    )
+    email = models.EmailField()
+    role = models.CharField(
+        max_length=20, 
+        choices=ProjectMember.Role.choices
+    )
+    invited_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.CASCADE
+    )
+    token = models.CharField(
+        max_length=64, 
+        unique=True
+    )
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(null=True, blank=True)
+    declined_at = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = ["project", "email"]
+        indexes = [
+            models.Index(fields=["token"]),
+            models.Index(fields=["email"]),
+            models.Index(fields=["project"]),
+            models.Index(fields=["expires_at"]),
+        ]
+    
+    def __str__(self):
+        return f"ProjectInvitation({self.email} to {self.project.slug} as {self.role})"
+    
+    @property
+    def is_expired(self):
+        """Check if the invitation has expired."""
+        return timezone.now() > self.expires_at
+    
+    @property
+    def is_pending(self):
+        """Check if the invitation is still pending (not accepted or declined)."""
+        return self.accepted_at is None and self.declined_at is None
+
+
 class Project(TimestampedModel):
     if TYPE_CHECKING:
         compose_stacks: RelatedManager["ComposeStack"]

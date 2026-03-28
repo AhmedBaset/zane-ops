@@ -363,8 +363,8 @@ class ServiceDeploymentRuntimeLogsAPIView(APIView):
         deployment_hash: str,
         env_slug: str = Environment.PRODUCTION_ENV_NAME,
     ):
+        project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
         try:
-            project = get_project_with_permission_check(project_slug, self.request.user, 'view_logs')
             environment = Environment.objects.get(
                 name=env_slug.lower(), project=project
             )

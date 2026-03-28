@@ -391,7 +391,6 @@ class ProjectServiceListAPIView(APIView):
         
         return project, environment
 
-
     @extend_schema(
         parameters=[ServiceListParamSerializer],
         responses={
