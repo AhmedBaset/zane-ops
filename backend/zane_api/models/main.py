@@ -93,36 +93,27 @@ class ProjectMember(TimestampedModel):
             models.Index(fields=["user"]),
             models.Index(fields=["role"]),
         ]
-    
+
     def __str__(self):
-        return f"ProjectMember({self.user.username} - {self.role} in {self.project.slug})"
+        return (
+            f"ProjectMember({self.user.username} - {self.role} in {self.project.slug})"
+        )
 
 
 class ProjectInvitation(TimestampedModel):
     """Model representing an invitation for a user to join a project."""
-    
+
     project = models.ForeignKey(
-        "Project", 
-        on_delete=models.CASCADE, 
-        related_name="invitations"
+        "Project", on_delete=models.CASCADE, related_name="invitations"
     )
     email = models.EmailField()
-    role = models.CharField(
-        max_length=20, 
-        choices=ProjectMember.Role.choices
-    )
-    invited_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE
-    )
-    token = models.CharField(
-        max_length=64, 
-        unique=True
-    )
+    role = models.CharField(max_length=20, choices=ProjectMember.Role.choices)
+    invited_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    token = models.CharField(max_length=64, unique=True)
     expires_at = models.DateTimeField()
     accepted_at = models.DateTimeField(null=True, blank=True)
     declined_at = models.DateTimeField(null=True, blank=True)
-    
+
     class Meta:
         unique_together = ["project", "email"]
         indexes = [
@@ -131,104 +122,15 @@ class ProjectInvitation(TimestampedModel):
             models.Index(fields=["project"]),
             models.Index(fields=["expires_at"]),
         ]
-    
+
     def __str__(self):
         return f"ProjectInvitation({self.email} to {self.project.slug} as {self.role})"
-    
+
     @property
     def is_expired(self):
         """Check if the invitation has expired."""
         return timezone.now() > self.expires_at
-    
-    @property
-    def is_pending(self):
-        """Check if the invitation is still pending (not accepted or declined)."""
-        return self.accepted_at is None and self.declined_at is None
 
-
-class ProjectMember(TimestampedModel):
-    """Model representing a user's membership in a project with a specific role."""
-    
-    class Role(models.TextChoices):
-        OWNER = "OWNER", _("Owner")
-        ADMIN = "ADMIN", _("Admin")
-        DEVELOPER = "DEVELOPER", _("Developer")
-        VIEWER = "VIEWER", _("Viewer")
-    
-    project = models.ForeignKey(
-        "Project", 
-        on_delete=models.CASCADE, 
-        related_name="members"
-    )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE
-    )
-    role = models.CharField(
-        max_length=20, 
-        choices=Role.choices
-    )
-    invited_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        related_name="sent_invitations"
-    )
-    
-    class Meta:
-        unique_together = ["project", "user"]
-        indexes = [
-            models.Index(fields=["project", "user"]),
-            models.Index(fields=["user"]),
-            models.Index(fields=["role"]),
-        ]
-    
-    def __str__(self):
-        return f"ProjectMember({self.user.username} - {self.role} in {self.project.slug})"
-
-
-class ProjectInvitation(TimestampedModel):
-    """Model representing an invitation for a user to join a project."""
-    
-    project = models.ForeignKey(
-        "Project", 
-        on_delete=models.CASCADE, 
-        related_name="invitations"
-    )
-    email = models.EmailField()
-    role = models.CharField(
-        max_length=20, 
-        choices=ProjectMember.Role.choices
-    )
-    invited_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, 
-        on_delete=models.CASCADE
-    )
-    token = models.CharField(
-        max_length=64, 
-        unique=True
-    )
-    expires_at = models.DateTimeField()
-    accepted_at = models.DateTimeField(null=True, blank=True)
-    declined_at = models.DateTimeField(null=True, blank=True)
-    
-    class Meta:
-        unique_together = ["project", "email"]
-        indexes = [
-            models.Index(fields=["token"]),
-            models.Index(fields=["email"]),
-            models.Index(fields=["project"]),
-            models.Index(fields=["expires_at"]),
-        ]
-    
-    def __str__(self):
-        return f"ProjectInvitation({self.email} to {self.project.slug} as {self.role})"
-    
-    @property
-    def is_expired(self):
-        """Check if the invitation has expired."""
-        return timezone.now() > self.expires_at
-    
     @property
     def is_pending(self):
         """Check if the invitation is still pending (not accepted or declined)."""
@@ -243,7 +145,7 @@ class Project(TimestampedModel):
     services: Manager["Service"]
     members: Manager["ProjectMember"]
     invitations: Manager["ProjectInvitation"]
-    
+
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -298,50 +200,55 @@ class Project(TimestampedModel):
     def get_user_role(self, user) -> Optional[str]:
         if user.is_anonymous:
             return None
-        
+
         if self.owner == user:
             return ProjectMember.Role.OWNER
-        
+
         member = self.members.filter(user=user).first()
         return member.role if member else None
 
     def get_members(self):
         from django.contrib.auth import get_user_model
+
         User = get_user_model()
-        
+
         member_users = User.objects.filter(
-            id__in=self.members.values_list('user_id', flat=True)
+            id__in=self.members.values_list("user_id", flat=True)
         ).select_related()
-        
+
         owner_is_member = self.members.filter(user=self.owner).exists()
         if not owner_is_member:
             return User.objects.filter(
-                Q(id__in=self.members.values_list('user_id', flat=True)) |
-                Q(id=self.owner.id)
+                Q(id__in=self.members.values_list("user_id", flat=True))
+                | Q(id=self.owner.id)
             ).select_related()
-        
+
         return member_users
 
     def get_members_with_roles(self):
         members_data = []
-        
+
         owner_is_member = self.members.filter(user=self.owner).exists()
         if not owner_is_member:
-            members_data.append({
-                'user': self.owner,
-                'role': ProjectMember.Role.OWNER,
-                'invited_by': None,
-                'created_at': self.created_at,
-            })
-        
-        for member in self.members.select_related('user', 'invited_by').all():
-            members_data.append({
-                'user': member.user,
-                'role': member.role,
-                'invited_by': member.invited_by,
-                'created_at': member.created_at,
-            })
-        
+            members_data.append(
+                {
+                    "user": self.owner,
+                    "role": ProjectMember.Role.OWNER,
+                    "invited_by": None,
+                    "created_at": self.created_at,
+                }
+            )
+
+        for member in self.members.select_related("user", "invited_by").all():
+            members_data.append(
+                {
+                    "user": member.user,
+                    "role": member.role,
+                    "invited_by": member.invited_by,
+                    "created_at": member.created_at,
+                }
+            )
+
         return members_data
 
     def can_user_access(self, user) -> bool:
@@ -350,18 +257,20 @@ class Project(TimestampedModel):
     def is_owner(self, user) -> bool:
         if user.is_anonymous:
             return False
-        return self.owner == user or self.get_user_role(user) == ProjectMember.Role.OWNER
+        return (
+            self.owner == user or self.get_user_role(user) == ProjectMember.Role.OWNER
+        )
 
     def add_member(self, user, role: str, invited_by=None):
         if self.owner == user:
             return None
-        
+
         member, created = self.members.get_or_create(
             user=user,
             defaults={
-                'role': role,
-                'invited_by': invited_by,
-            }
+                "role": role,
+                "invited_by": invited_by,
+            },
         )
         return member
 
@@ -369,7 +278,7 @@ class Project(TimestampedModel):
         """Remove a member from the project."""
         if self.owner == user:
             return False
-        
+
         deleted_count, _ = self.members.filter(user=user).delete()
         return deleted_count > 0
 
@@ -377,7 +286,7 @@ class Project(TimestampedModel):
         """Update a member's role in the project."""
         if self.owner == user:
             return False
-        
+
         updated_count = self.members.filter(user=user).update(role=new_role)
         return updated_count > 0
 
@@ -1068,7 +977,7 @@ class Service(BaseService):
             [
                 f"{self.network_alias}.{settings.ZANE_INTERNAL_DOMAIN}",
                 self.network_alias,
-                f"net-{self.environment.id}.{self.slug}"
+                f"net-{self.environment.id}.{self.slug}",
             ]
             if self.network_alias is not None
             else []
