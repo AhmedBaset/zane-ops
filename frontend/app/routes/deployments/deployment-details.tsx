@@ -141,10 +141,6 @@ export default function DeploymentDetailsPage({
   const tag = imageParts.length > 1 ? imageParts.pop() : "latest";
   const image = imageParts.join(":");
 
-  const repoUrl = deployment.service_snapshot.repository_url
-    ? new URL(deployment.service_snapshot.repository_url)
-    : null;
-
   React.useEffect(() => {
     if (deployment.started_at && !deployment.finished_at) {
       const timer = setInterval(() => {
@@ -239,7 +235,6 @@ export default function DeploymentDetailsPage({
                     href={deployment.service_snapshot.repository_url ?? "#"}
                     target="_blank"
                     className="underline text-link inline-flex gap-1 items-center"
-                    rel="noreferrer"
                   >
                     {deployment.service_snapshot.repository_url}{" "}
                     <ExternalLinkIcon size={15} />
@@ -350,7 +345,7 @@ export default function DeploymentDetailsPage({
                 <span>Full commit message:</span>
               </dt>
               <dd className="w-full">
-                <pre className="font-mono bg-muted/25 dark:bg-card p-2 rounded-md text-sm">
+                <pre className="font-mono bg-muted/25 dark:bg-card p-2 rounded-md text-sm break-all w-full">
                   {deployment.commit_message}
                 </pre>
               </dd>
@@ -376,8 +371,8 @@ export default function DeploymentDetailsPage({
           {changes.length === 0 && (
             <div
               className={cn(
-                "border-dashed border border-foreground rounded-md px-4 py-8 font-mono",
-                "flex items-center justify-center text-foreground"
+                "flex flex-col gap-2 items-center py-8 bg-muted/20",
+                "border-border border-dashed rounded-md border-1"
               )}
             >
               No changes made in this deployment

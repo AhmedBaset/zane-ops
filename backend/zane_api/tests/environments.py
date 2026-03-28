@@ -1,4 +1,5 @@
 import asyncio
+from typing import cast
 from .base import AuthAPITestCase
 from django.urls import reverse
 from rest_framework import status
@@ -350,7 +351,9 @@ class EnvironmentViewTests(AuthAPITestCase):
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
 
         for service in services:
-            deleted_service: Service = await Service.objects.filter(slug=service.slug).afirst()  # type: ignore
+            deleted_service: Service = await Service.objects.filter(
+                slug=service.slug
+            ).afirst()  # type: ignore
             self.assertIsNone(deleted_service)
 
             if service.type == Service.ServiceType.DOCKER_REGISTRY:
@@ -494,7 +497,9 @@ class CloneEnvironmentViewTests(AuthAPITestCase):
         services_in_staging = Service.objects.filter(environment=staging_env)
         self.assertEqual(1, services_in_staging.count())
 
-        cloned_service: Service = services_in_staging.filter(type=Service.ServiceType.GIT_REPOSITORY).first()  # type: ignore
+        cloned_service: Service = services_in_staging.filter(
+            type=Service.ServiceType.GIT_REPOSITORY
+        ).first()  # type: ignore
         self.assertIsNotNone(cloned_service)
 
         self.assertEqual(service.slug, cloned_service.slug)
@@ -653,16 +658,17 @@ class CloneEnvironmentViewTests(AuthAPITestCase):
         )
         self.assertEqual(1, url_changes.count())
 
-        url_change = url_changes.first()
+        url_change = cast(DeploymentChange, url_changes.first())
         first_url: URL = service.urls.filter(redirect_to__isnull=True).first()  # type: ignore
 
+        new_value = cast(dict[str, str], url_change.new_value)
         # should change the domain for the URL
-        self.assertNotEqual(first_url.domain, url_change.new_value.get("domain"))  # type: ignore
-        self.assertEqual(first_url.base_path, url_change.new_value.get("base_path"))  # type: ignore
-        self.assertEqual(first_url.associated_port, url_change.new_value.get("associated_port"))  # type: ignore
-        self.assertEqual(first_url.strip_prefix, url_change.new_value.get("strip_prefix"))  # type: ignore
+        self.assertNotEqual(first_url.domain, new_value.get("domain"))
+        self.assertEqual(first_url.base_path, new_value.get("base_path"))
+        self.assertEqual(first_url.associated_port, new_value.get("associated_port"))
+        self.assertEqual(first_url.strip_prefix, new_value.get("strip_prefix"))
         # should only copy URLs that are not redirections
-        self.assertIsNone(url_change.new_value.get("redirect_to"))  # type: ignore
+        self.assertIsNone(new_value.get("redirect_to"))
 
     def test_clone_environment_with_service_ports_do_not_clone_the_ports(self):
         p, service = self.create_and_deploy_redis_docker_service(
@@ -707,7 +713,7 @@ class CloneEnvironmentViewTests(AuthAPITestCase):
                 "zane_api:projects.environment.clone",
                 kwargs={"slug": p.slug, "env_slug": Environment.PRODUCTION_ENV_NAME},
             ),
-            data={"name": "staging", "deploy_services": True},
+            data={"name": "staging", "deploy_after_clone": True},
         )
         self.assertEqual(status.HTTP_201_CREATED, response.status_code)
         jprint(response.json())
@@ -753,39 +759,6 @@ class CloneEnvironmentViewTests(AuthAPITestCase):
         )
         self.assertEqual(1, len(service_images))
 
-    def test_clone_environment_with_service_url_with_deploy_body_should_create_deployment_url(
-        self,
-    ):
-        p, service = self.create_and_deploy_caddy_docker_service()
-
-        response = self.client.post(
-            reverse(
-                "zane_api:projects.environment.clone",
-                kwargs={"slug": p.slug, "env_slug": Environment.PRODUCTION_ENV_NAME},
-            ),
-            data={"name": "staging", "deploy_services": True},
-        )
-        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
-        jprint(response.json())
-
-        staging_env: Environment = p.environments.filter(name="staging").first()  # type: ignore
-        self.assertIsNotNone(staging_env)
-
-        services_in_staging = Service.objects.filter(environment=staging_env)
-        self.assertEqual(1, services_in_staging.count())
-
-        cloned_service: Service = services_in_staging.first()  # type: ignore
-        self.assertIsNotNone(cloned_service)
-
-        cloned_service: Service = staging_env.services.first()  # type: ignore
-        self.assertEqual(1, cloned_service.deployments.count())
-
-        self.assertEqual(0, cloned_service.unapplied_changes.count())
-
-        cloned_deployment: Deployment = cloned_service.deployments.first()  # type: ignore
-        count: int = cloned_deployment.urls.count()  # type: ignore wtf ???
-        self.assertGreater(count, 0)
-
     def test_clone_environments_with_variables_should_clone_variables(self):
         p, service = self.create_and_deploy_caddy_docker_service()
 
@@ -798,7 +771,7 @@ class CloneEnvironmentViewTests(AuthAPITestCase):
                 "zane_api:projects.environment.clone",
                 kwargs={"slug": p.slug, "env_slug": Environment.PRODUCTION_ENV_NAME},
             ),
-            data={"name": "staging", "deploy_services": True},
+            data={"name": "staging", "deploy_after_clone": True},
         )
         self.assertEqual(status.HTTP_201_CREATED, response.status_code)
         jprint(response.json())
@@ -983,12 +956,17 @@ class ServiceEnvironmentViewTests(AuthAPITestCase):
             ),
         )
         self.assertEqual(status.HTTP_200_OK, response.status_code)
-        first_deployment = await service.deployments.afirst()
+        first_deployment = cast(Deployment, await service.deployments.afirst())
+        self.assertIsNotNone(first_deployment)
 
-        swarm_service = self.fake_docker_client.get_deployment_service(first_deployment)  # type: ignore
+        swarm_service = self.fake_docker_client.get_deployment_service(first_deployment)
+        self.assertIsNotNone(swarm_service)
 
         self.assertTrue("GITHUB_PERSONAL_ACCESS_TOKEN" in swarm_service.env)  # type: ignore
-        self.assertEqual("ghp_service_token", swarm_service.env["GITHUB_PERSONAL_ACCESS_TOKEN"])  # type: ignore
+        self.assertEqual(
+            "ghp_service_token",
+            swarm_service.env["GITHUB_PERSONAL_ACCESS_TOKEN"],  # type: ignore
+        )
 
     async def test_referenced_env_variables_in_services_are_replaced(self):
         p, service = await self.acreate_redis_docker_service()
@@ -1057,5 +1035,8 @@ class ServiceEnvironmentViewTests(AuthAPITestCase):
         swarm_service = self.fake_docker_client.get_deployment_service(first_deployment)  # type: ignore
 
         self.assertEqual("hello-ghp_env_token", swarm_service.env["GITHUB_PAT"])  # type: ignore
-        self.assertEqual("{{env.NON_EXISTENT}}", swarm_service.env["REFERENCE_NOT_FOUND"])  # type: ignore
+        self.assertEqual(
+            "{{env.NON_EXISTENT}}",
+            swarm_service.env["REFERENCE_NOT_FOUND"],  # type: ignore
+        )
         self.assertEqual("{{env.GITHUB PAT}}", swarm_service.env["INVALID_NAME"])  # type: ignore

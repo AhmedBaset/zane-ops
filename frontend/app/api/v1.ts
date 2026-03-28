@@ -58,6 +58,13 @@ export interface paths {
      */
     get: operations["check_ongoing_update_status_retrieve"];
   };
+  "/api/compose/deploy-stack/{deploy_token}/": {
+    /**
+     * Webhook to deploy a compose stack
+     * @description trigger a new deployment.
+     */
+    put: operations["webhookDeployComposeStack"];
+  };
   "/api/compose/stacks/{project_slug}/{env_slug}/": {
     get: operations["compose_stacks_list"];
   };
@@ -66,21 +73,67 @@ export interface paths {
     get: operations["getComposeStackDetails"];
     put: operations["compose_stacks_update"];
   };
-  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/{hash}/": {
-    /** Get a compose stack deployment details */
-    get: operations["getComposeStackDeploymentDetails"];
-  };
   "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/archive/": {
     /** Archive a compose stack */
     delete: operations["archiveComposeStack"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/cancel-changes/{change_id}/": {
+    /** Cancel stack change */
+    delete: operations["cancelStackChanges"];
   };
   "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/deploy/": {
     /** Queue a new deployment for the compose stack */
     put: operations["deployComposeStack"];
   };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/deploy/{hash}/": {
+    /** Rollback to a previous version of the compose stack */
+    put: operations["reDeployComposeStack"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/deployments/": {
+    /** Get a list of all the deployments for a compose stack */
+    get: operations["listComposeStackDeployments"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/deployments/{hash}/": {
+    /** Get a compose stack deployment details */
+    get: operations["getComposeStackDeploymentDetails"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/deployments/{hash}/build-logs/": {
+    /** Get stack build logs */
+    get: operations["compose_stacks_deployments_build_logs_retrieve"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/deployments/{hash}/cancel/": {
+    /**
+     * Cancel compose stack deployment
+     * @description Cancel a compose stack deployment in progress.
+     */
+    put: operations["cancelComposeStackDeployment"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/metrics/": {
+    /** Get stack metrics */
+    get: operations["compose_stacks_metrics_list"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/regenerate-deploy-token/": {
+    /** Regenerate a compose stack deploy token */
+    put: operations["regenerateComposeStackDeployToken"];
+  };
   "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/request-changes/": {
     /** Request a new compose stack change */
     put: operations["requestComposeStackUpdate"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/runtime-logs/": {
+    /** Get stack runtime logs */
+    get: operations["compose_stacks_runtime_logs_retrieve"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/runtime-logs/with-context/{time}/": {
+    /** Get stack runtime logs with context */
+    get: operations["compose_stacks_runtime_logs_with_context_retrieve"];
+  };
+  "/api/compose/stacks/{project_slug}/{env_slug}/{slug}/toggle/": {
+    /**
+     * Stop/Start a compose stack
+     * @description Stops all services in a compose stack (scales to 0) or starts them back up.
+     */
+    put: operations["toggleComposeStack"];
   };
   "/api/compose/stacks/{project_slug}/{env_slug}/create/": {
     post: operations["compose_stacks_create_create"];
@@ -178,6 +231,18 @@ export interface paths {
      * @description Search a docker Image in docker hub Registry
      */
     get: operations["searchDockerRegistry"];
+  };
+  "/api/http-logs/": {
+    /** Get HTTP logs */
+    get: operations["http_logs_list"];
+  };
+  "/api/http-logs/{request_uuid}/": {
+    /** Get single http log */
+    get: operations["http_logs_retrieve"];
+  };
+  "/api/http-logs/fields/": {
+    /** Get http logs fields values */
+    get: operations["http_logs_fields_list"];
   };
   "/api/ping/": {
     /**
@@ -319,18 +384,6 @@ export interface paths {
     /** Get deployment build logs */
     get: operations["projects_service_details_deployments_build_logs_retrieve"];
   };
-  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/deployments/{deployment_hash}/http-logs/": {
-    /** Get deployment HTTP logs */
-    get: operations["projects_service_details_deployments_http_logs_list"];
-  };
-  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/deployments/{deployment_hash}/http-logs/{request_uuid}/": {
-    /** Get single deployment http log */
-    get: operations["projects_service_details_deployments_http_logs_retrieve"];
-  };
-  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/deployments/{deployment_hash}/http-logs/fields/": {
-    /** Get deployment http logs fields values */
-    get: operations["projects_service_details_deployments_http_logs_fields_list"];
-  };
   "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/deployments/{deployment_hash}/metrics/": {
     /** Get service or deployment metrics */
     get: operations["projects_service_details_deployments_metrics_list"];
@@ -339,21 +392,13 @@ export interface paths {
     /** Get deployment logs */
     get: operations["projects_service_details_deployments_runtime_logs_retrieve"];
   };
+  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/deployments/{deployment_hash}/runtime-logs/with-context/{time}": {
+    /** Get deployment logs with context */
+    get: operations["projects_service_details_deployments_runtime_logs_with_context_retrieve"];
+  };
   "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/detected-ports/": {
     /** Get detected service ports */
     get: operations["projects_service_details_detected_ports_list"];
-  };
-  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/http-logs/": {
-    /** Get service HTTP logs */
-    get: operations["projects_service_details_http_logs_list"];
-  };
-  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/http-logs/{request_uuid}/": {
-    /** Get single service http log */
-    get: operations["projects_service_details_http_logs_retrieve"];
-  };
-  "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/http-logs/fields/": {
-    /** Get service http logs fields values */
-    get: operations["projects_service_details_http_logs_fields_list"];
   };
   "/api/projects/{project_slug}/{env_slug}/service-details/{service_slug}/metrics/": {
     /** Get service or deployment metrics */
@@ -397,10 +442,10 @@ export interface paths {
   "/api/projects/{slug}/": {
     /** Get single project */
     get: operations["getSingleProject"];
+    /** Update a project */
+    put: operations["updateProject"];
     /** Archive a Project */
     delete: operations["archiveSingleProject"];
-    /** Update a project */
-    patch: operations["updateProject"];
   };
   "/api/projects/{slug}/{env_slug}/service-list/": {
     /**
@@ -793,8 +838,10 @@ export interface components {
       type: components["schemas"]["ValidationErrorEnum"];
       errors: components["schemas"]["BulkToggleServicesError"][];
     };
+    CancelComposeStackDeploymentErrorResponse400: components["schemas"]["ParseErrorResponse"];
     CancelServiceChangesErrorResponse400: components["schemas"]["ParseErrorResponse"];
     CancelServiceDeploymentErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    CancelStackChangesErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ChangePasswordConfirmPasswordErrorComponent: {
       /**
        * @description * `confirm_password` - confirm_password
@@ -918,12 +965,12 @@ export interface components {
      * @enum {string}
      */
     ClientErrorEnum: "client_error";
-    CloneEnvironmentDeployServicesErrorComponent: {
+    CloneEnvironmentDeployAfterCloneErrorComponent: {
       /**
-       * @description * `deploy_services` - deploy_services
+       * @description * `deploy_after_clone` - deploy_after_clone
        * @enum {string}
        */
-      attr: "deploy_services";
+      attr: "deploy_after_clone";
       /**
        * @description * `invalid` - invalid
        * * `null` - null
@@ -932,7 +979,7 @@ export interface components {
       code: "invalid" | "null";
       detail: string;
     };
-    CloneEnvironmentError: components["schemas"]["CloneEnvironmentNonFieldErrorsErrorComponent"] | components["schemas"]["CloneEnvironmentDeployServicesErrorComponent"] | components["schemas"]["CloneEnvironmentNameErrorComponent"];
+    CloneEnvironmentError: components["schemas"]["CloneEnvironmentNonFieldErrorsErrorComponent"] | components["schemas"]["CloneEnvironmentDeployAfterCloneErrorComponent"] | components["schemas"]["CloneEnvironmentNameErrorComponent"];
     CloneEnvironmentErrorResponse400: components["schemas"]["CloneEnvironmentValidationError"] | components["schemas"]["ParseErrorResponse"];
     CloneEnvironmentNameErrorComponent: {
       /**
@@ -968,7 +1015,7 @@ export interface components {
     };
     CloneEnvironmentRequestRequest: {
       /** @default false */
-      deploy_services?: boolean;
+      deploy_after_clone?: boolean;
       name: string;
     };
     CloneEnvironmentValidationError: {
@@ -1026,9 +1073,14 @@ export interface components {
         [key: string]: components["schemas"]["ComposeConfigVersion"];
       };
       env_overrides: readonly components["schemas"]["ComposeStackEnvOverride"][];
-      service_statuses: {
+      services: {
         [key: string]: components["schemas"]["ComposeStackServiceStatus"];
       };
+      deploy_token: string | null;
+      /** Format: date-time */
+      created_at: string;
+      name: string;
+      hash_prefix: string;
     };
     ComposeStackChange: {
       id: string;
@@ -1076,18 +1128,18 @@ export interface components {
       changes: readonly components["schemas"]["ComposeStackChange"][];
       /** Format: date-time */
       finished_at: string | null;
+      redeploy_hash: string | null;
     };
     ComposeStackDeploymentChangeRequestRequest: components["schemas"]["ComposeContentFieldChangeRequest"] | components["schemas"]["ComposeEnvOverrideItemChangeRequest"];
     /**
      * @description * `QUEUED` - Queued
-     * * `CANCELLED` - Cancelled
      * * `DEPLOYING` - Deploying
      * * `FINISHED` - Finished
      * * `FAILED` - Failed
-     * * `REMOVED` - Removed
+     * * `CANCELLED` - Cancelled
      * @enum {string}
      */
-    ComposeStackDeploymentStatusEnum: "QUEUED" | "CANCELLED" | "DEPLOYING" | "FINISHED" | "FAILED" | "REMOVED";
+    ComposeStackDeploymentStatusEnum: "QUEUED" | "DEPLOYING" | "FINISHED" | "FAILED" | "CANCELLED";
     ComposeStackEnvOverride: {
       id: string;
       key: string;
@@ -1098,12 +1150,87 @@ export interface components {
       key: string;
       value?: string;
     };
+    ComposeStackMetrics: {
+      /** Format: date-time */
+      bucket_epoch: string;
+      /** Format: double */
+      avg_cpu: number;
+      /** Format: double */
+      avg_memory: number;
+      total_net_tx: number;
+      total_net_rx: number;
+      total_disk_read: number;
+      total_disk_write: number;
+      service_name: string;
+    };
     ComposeStackRequest: {
       slug?: string;
       user_content: string;
     };
+    ComposeStackSearchResponse: {
+      id: string;
+      project_slug: string;
+      slug: string;
+      /** Format: date-time */
+      created_at: string;
+      /** @default compose_stack */
+      type: components["schemas"]["ComposeStackSearchResponseTypeEnum"];
+      environment: string;
+    };
+    /**
+     * @description * `compose_stack` - compose_stack
+     * @enum {string}
+     */
+    ComposeStackSearchResponseTypeEnum: "compose_stack";
+    ComposeStackServiceConfig: {
+      source: string;
+      target: string;
+      content: string;
+    };
+    ComposeStackServiceConfigRequest: {
+      source: string;
+      target: string;
+      content: string;
+    };
+    ComposeStackServiceEnvVar: {
+      key: string;
+      value: string;
+    };
+    ComposeStackServiceEnvVarRequest: {
+      key: string;
+      value: string;
+    };
+    ComposeStackServiceHealthCheck: {
+      command: string;
+      retries: number | null;
+      timeout_sec: number | null;
+      interval_sec: number | null;
+      start_period: number | null;
+      start_interval: number | null;
+    };
+    ComposeStackServiceHealthCheckRequest: {
+      command: string;
+      retries?: number | null;
+      timeout_sec?: number | null;
+      interval_sec?: number | null;
+      start_period?: number | null;
+      start_interval?: number | null;
+    };
+    ComposeStackServicePort: {
+      published: number;
+      target: number;
+      protocol: components["schemas"]["ProtocolEnum"];
+    };
+    ComposeStackServicePortRequest: {
+      published: number;
+      target: number;
+      protocol: components["schemas"]["ProtocolEnum"];
+    };
     ComposeStackServiceStatus: {
+      id: string;
       status: components["schemas"]["ComposeStackServiceStatusStatusEnum"];
+      network_alias: string;
+      global_alias: string;
       running_replicas: number;
       desired_replicas: number;
       /** Format: date-time */
@@ -1111,6 +1238,11 @@ export interface components {
       tasks: components["schemas"]["ComposeStackServiceTask"][];
       image: string;
       mode: components["schemas"]["ComposeStackServiceStatusModeEnum"];
+      environment: components["schemas"]["ComposeStackServiceEnvVar"][];
+      volumes: components["schemas"]["ComposeStackServiceVolume"][];
+      configs: components["schemas"]["ComposeStackServiceConfig"][];
+      ports: components["schemas"]["ComposeStackServicePort"][];
+      healthcheck: components["schemas"]["ComposeStackServiceHealthCheck"] | null;
     };
     /**
      * @description * `replicated` - replicated
@@ -1121,7 +1253,10 @@ export interface components {
      */
     ComposeStackServiceStatusModeEnum: "replicated" | "global" | "replicated-job" | "global-job";
     ComposeStackServiceStatusRequest: {
+      id: string;
       status: components["schemas"]["ComposeStackServiceStatusStatusEnum"];
+      network_alias: string;
+      global_alias: string;
       running_replicas: number;
       desired_replicas: number;
       /** Format: date-time */
@@ -1129,6 +1264,11 @@ export interface components {
       tasks: components["schemas"]["ComposeStackServiceTaskRequest"][];
       image: string;
       mode: components["schemas"]["ComposeStackServiceStatusModeEnum"];
+      environment: components["schemas"]["ComposeStackServiceEnvVarRequest"][];
+      volumes: components["schemas"]["ComposeStackServiceVolumeRequest"][];
+      configs: components["schemas"]["ComposeStackServiceConfigRequest"][];
+      ports: components["schemas"]["ComposeStackServicePortRequest"][];
+      healthcheck?: components["schemas"]["ComposeStackServiceHealthCheckRequest"] | null;
     };
     /**
      * @description * `STARTING` - STARTING
@@ -1140,35 +1280,55 @@ export interface components {
      */
     ComposeStackServiceStatusStatusEnum: "STARTING" | "HEALTHY" | "UNHEALTHY" | "COMPLETE" | "SLEEPING";
     ComposeStackServiceTask: {
-      status: components["schemas"]["ComposeStackServiceTaskStatusEnum"];
+      status: components["schemas"]["ServiceTaskStatus"];
+      desired_status: components["schemas"]["ServiceTaskStatus"];
+      id: string;
+      version: number;
+      slot: number;
+      name: string;
+      container_id: string | null;
       image: string;
       message: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
       exit_code: number | null;
     };
     ComposeStackServiceTaskRequest: {
-      status: components["schemas"]["ComposeStackServiceTaskStatusEnum"];
+      status: components["schemas"]["ServiceTaskStatus"];
+      desired_status: components["schemas"]["ServiceTaskStatus"];
+      id: string;
+      version: number;
+      slot: number;
+      name: string;
+      container_id?: string | null;
       image: string;
       message: string;
+      /** Format: date-time */
+      created_at: string;
+      /** Format: date-time */
+      updated_at: string;
       exit_code?: number | null;
     };
+    ComposeStackServiceVolume: {
+      source: string;
+      target: string;
+      read_only: boolean;
+      type: components["schemas"]["ComposeStackServiceVolumeTypeEnum"];
+    };
+    ComposeStackServiceVolumeRequest: {
+      source: string;
+      target: string;
+      read_only: boolean;
+      type: components["schemas"]["ComposeStackServiceVolumeTypeEnum"];
+    };
     /**
-     * @description * `new` - new
-     * * `pending` - pending
-     * * `assigned` - assigned
-     * * `accepted` - accepted
-     * * `ready` - ready
-     * * `preparing` - preparing
-     * * `starting` - starting
-     * * `running` - running
-     * * `complete` - complete
-     * * `failed` - failed
-     * * `shutdown` - shutdown
-     * * `rejected` - rejected
-     * * `orphaned` - orphaned
-     * * `remove` - remove
+     * @description * `volume` - volume
+     * * `bind` - bind
      * @enum {string}
      */
-    ComposeStackServiceTaskStatusEnum: "new" | "pending" | "assigned" | "accepted" | "ready" | "preparing" | "starting" | "running" | "complete" | "failed" | "shutdown" | "rejected" | "orphaned" | "remove";
+    ComposeStackServiceVolumeTypeEnum: "volume" | "bind";
     ComposeStackSnapshot: {
       id: string;
       hash_prefix: string;
@@ -1187,6 +1347,10 @@ export interface components {
       };
       env_overrides: readonly components["schemas"]["ComposeStackEnvOverride"][];
     };
+    ComposeStackToggleRequestRequest: {
+      desired_state: components["schemas"]["DesiredStateEnum"];
+      service_name?: string;
+    };
     ComposeStackUpdate: {
       id: string;
       slug: string;
@@ -1202,9 +1366,14 @@ export interface components {
         [key: string]: components["schemas"]["ComposeConfigVersion"];
       };
       env_overrides: readonly components["schemas"]["ComposeStackEnvOverride"][];
-      service_statuses: {
+      services: {
         [key: string]: components["schemas"]["ComposeStackServiceStatus"];
       };
+      deploy_token: string | null;
+      /** Format: date-time */
+      created_at: string;
+      name: string;
+      hash_prefix: string;
     };
     ComposeStackUpdateRequest: {
       slug?: string;
@@ -1220,6 +1389,11 @@ export interface components {
       base_path: string;
       strip_prefix: boolean;
       port: number;
+    };
+    ComposeStackWebhookDeployRequestRequest: {
+      /** @default Update stack */
+      commit_message?: string;
+      user_content?: string;
     };
     ComposeStacksCreateCreateError: components["schemas"]["ComposeStacksCreateCreateNonFieldErrorsErrorComponent"] | components["schemas"]["ComposeStacksCreateCreateSlugErrorComponent"] | components["schemas"]["ComposeStacksCreateCreateUserContentErrorComponent"];
     ComposeStacksCreateCreateErrorResponse400: components["schemas"]["ComposeStacksCreateCreateValidationError"] | components["schemas"]["ParseErrorResponse"];
@@ -1276,7 +1450,42 @@ export interface components {
       type: components["schemas"]["ValidationErrorEnum"];
       errors: components["schemas"]["ComposeStacksCreateCreateError"][];
     };
-    ComposeStacksListErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ComposeStacksDeploymentsBuildLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ComposeStacksListError: components["schemas"]["ComposeStacksListSlugErrorComponent"] | components["schemas"]["ComposeStacksListSortByErrorComponent"];
+    ComposeStacksListErrorResponse400: components["schemas"]["ComposeStacksListValidationError"] | components["schemas"]["ParseErrorResponse"];
+    ComposeStacksListSlugErrorComponent: {
+      /**
+       * @description * `slug` - slug
+       * @enum {string}
+       */
+      attr: "slug";
+      /**
+       * @description * `null_characters_not_allowed` - null_characters_not_allowed
+       * @enum {string}
+       */
+      code: "null_characters_not_allowed";
+      detail: string;
+    };
+    ComposeStacksListSortByErrorComponent: {
+      /**
+       * @description * `sort_by` - sort_by
+       * @enum {string}
+       */
+      attr: "sort_by";
+      /**
+       * @description * `invalid_choice` - invalid_choice
+       * @enum {string}
+       */
+      code: "invalid_choice";
+      detail: string;
+    };
+    ComposeStacksListValidationError: {
+      type: components["schemas"]["ValidationErrorEnum"];
+      errors: components["schemas"]["ComposeStacksListError"][];
+    };
+    ComposeStacksMetricsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ComposeStacksRuntimeLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ComposeStacksRuntimeLogsWithContextRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ComposeStacksUpdateError: components["schemas"]["ComposeStacksUpdateNonFieldErrorsErrorComponent"] | components["schemas"]["ComposeStacksUpdateSlugErrorComponent"];
     ComposeStacksUpdateErrorResponse400: components["schemas"]["ComposeStacksUpdateValidationError"] | components["schemas"]["ParseErrorResponse"];
     ComposeStacksUpdateNonFieldErrorsErrorComponent: {
@@ -2999,7 +3208,7 @@ export interface components {
       time: string;
       deployment_id: string | null;
       service_id: string | null;
-      request_id: string | null;
+      request_uuid: string | null;
       request_ip: string;
       request_path: string;
       request_query: string | null;
@@ -3016,7 +3225,109 @@ export interface components {
         [key: string]: string[];
       };
       request_user_agent: string | null;
+      stack_id: string | null;
+      stack_service_name: string | null;
     };
+    HttpLogsFieldsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    HttpLogsListDeploymentIdErrorComponent: {
+      /**
+       * @description * `deployment_id` - deployment_id
+       * @enum {string}
+       */
+      attr: "deployment_id";
+      /**
+       * @description * `null_characters_not_allowed` - null_characters_not_allowed
+       * @enum {string}
+       */
+      code: "null_characters_not_allowed";
+      detail: string;
+    };
+    HttpLogsListError: components["schemas"]["HttpLogsListTimeErrorComponent"] | components["schemas"]["HttpLogsListRequestMethodErrorComponent"] | components["schemas"]["HttpLogsListRequestQueryErrorComponent"] | components["schemas"]["HttpLogsListStackIdErrorComponent"] | components["schemas"]["HttpLogsListServiceIdErrorComponent"] | components["schemas"]["HttpLogsListDeploymentIdErrorComponent"] | components["schemas"]["HttpLogsListSortByErrorComponent"];
+    HttpLogsListErrorResponse400: components["schemas"]["HttpLogsListValidationError"] | components["schemas"]["ParseErrorResponse"];
+    HttpLogsListRequestMethodErrorComponent: {
+      /**
+       * @description * `request_method` - request_method
+       * @enum {string}
+       */
+      attr: "request_method";
+      /**
+       * @description * `invalid_choice` - invalid_choice
+       * * `invalid_list` - invalid_list
+       * @enum {string}
+       */
+      code: "invalid_choice" | "invalid_list";
+      detail: string;
+    };
+    HttpLogsListRequestQueryErrorComponent: {
+      /**
+       * @description * `request_query` - request_query
+       * @enum {string}
+       */
+      attr: "request_query";
+      /**
+       * @description * `null_characters_not_allowed` - null_characters_not_allowed
+       * @enum {string}
+       */
+      code: "null_characters_not_allowed";
+      detail: string;
+    };
+    HttpLogsListServiceIdErrorComponent: {
+      /**
+       * @description * `service_id` - service_id
+       * @enum {string}
+       */
+      attr: "service_id";
+      /**
+       * @description * `null_characters_not_allowed` - null_characters_not_allowed
+       * @enum {string}
+       */
+      code: "null_characters_not_allowed";
+      detail: string;
+    };
+    HttpLogsListSortByErrorComponent: {
+      /**
+       * @description * `sort_by` - sort_by
+       * @enum {string}
+       */
+      attr: "sort_by";
+      /**
+       * @description * `invalid_choice` - invalid_choice
+       * @enum {string}
+       */
+      code: "invalid_choice";
+      detail: string;
+    };
+    HttpLogsListStackIdErrorComponent: {
+      /**
+       * @description * `stack_id` - stack_id
+       * @enum {string}
+       */
+      attr: "stack_id";
+      /**
+       * @description * `null_characters_not_allowed` - null_characters_not_allowed
+       * @enum {string}
+       */
+      code: "null_characters_not_allowed";
+      detail: string;
+    };
+    HttpLogsListTimeErrorComponent: {
+      /**
+       * @description * `time` - time
+       * @enum {string}
+       */
+      attr: "time";
+      /**
+       * @description * `invalid` - invalid
+       * @enum {string}
+       */
+      code: "invalid";
+      detail: string;
+    };
+    HttpLogsListValidationError: {
+      type: components["schemas"]["ValidationErrorEnum"];
+      errors: components["schemas"]["HttpLogsListError"][];
+    };
+    HttpLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     /**
      * @description * `ADD` - Add
      * * `DELETE` - Delete
@@ -3031,6 +3342,39 @@ export interface components {
      */
     LevelEnum: "ERROR" | "INFO";
     ListAvailableVolumesErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ListComposeStackDeploymentsError: components["schemas"]["ListComposeStackDeploymentsStatusErrorComponent"] | components["schemas"]["ListComposeStackDeploymentsQueuedAtErrorComponent"];
+    ListComposeStackDeploymentsErrorResponse400: components["schemas"]["ListComposeStackDeploymentsValidationError"] | components["schemas"]["ParseErrorResponse"];
+    ListComposeStackDeploymentsQueuedAtErrorComponent: {
+      /**
+       * @description * `queued_at` - queued_at
+       * @enum {string}
+       */
+      attr: "queued_at";
+      /**
+       * @description * `invalid` - invalid
+       * @enum {string}
+       */
+      code: "invalid";
+      detail: string;
+    };
+    ListComposeStackDeploymentsStatusErrorComponent: {
+      /**
+       * @description * `status` - status
+       * @enum {string}
+       */
+      attr: "status";
+      /**
+       * @description * `invalid_choice` - invalid_choice
+       * * `invalid_list` - invalid_list
+       * @enum {string}
+       */
+      code: "invalid_choice" | "invalid_list";
+      detail: string;
+    };
+    ListComposeStackDeploymentsValidationError: {
+      type: components["schemas"]["ValidationErrorEnum"];
+      errors: components["schemas"]["ListComposeStackDeploymentsError"][];
+    };
     ListGitAppRepositoriesError: components["schemas"]["ListGitAppRepositoriesQueryErrorComponent"];
     ListGitAppRepositoriesErrorResponse400: components["schemas"]["ListGitAppRepositoriesValidationError"] | components["schemas"]["ParseErrorResponse"];
     ListGitAppRepositoriesPaginatedError: components["schemas"]["ListGitAppRepositoriesPaginatedQueryErrorComponent"];
@@ -3198,6 +3542,21 @@ export interface components {
       previous: string | null;
       results: components["schemas"]["BuildRegistryListCreate"][];
     };
+    PaginatedComposeStackDeploymentList: {
+      /** @example 123 */
+      count: number;
+      /**
+       * Format: uri
+       * @example http://api.example.org/accounts/?page=4
+       */
+      next: string | null;
+      /**
+       * Format: uri
+       * @example http://api.example.org/accounts/?page=2
+       */
+      previous: string | null;
+      results: components["schemas"]["ComposeStackDeployment"][];
+    };
     PaginatedGitRepositoryList: {
       /** @example 123 */
       count: number;
@@ -3272,6 +3631,8 @@ export interface components {
       slug?: string;
       /** @default [] */
       services_to_clone_ids?: string[];
+      /** @default [] */
+      stacks_to_clone_ids?: string[];
       base_environment_id?: string;
       clone_strategy?: components["schemas"]["CloneStrategyEnum"];
       ttl_seconds?: number | null;
@@ -3283,10 +3644,6 @@ export interface components {
       auth_user?: string | null;
       auth_password?: string | null;
       env_variables?: string;
-    };
-    PatchedProjectUpdateRequestRequest: {
-      slug?: string;
-      description?: string;
     };
     PatchedServiceRequest: {
       slug?: string;
@@ -3345,6 +3702,7 @@ export interface components {
       id: number;
       slug: string;
       services_to_clone: readonly components["schemas"]["SimpleTemplateService"][];
+      stacks_to_clone: readonly components["schemas"]["SimpleComposeStackService"][];
       base_environment: components["schemas"]["Environment"];
       /** @default [] */
       variables: readonly components["schemas"]["SharedEnvTemplate"][];
@@ -3362,6 +3720,8 @@ export interface components {
       slug: string;
       /** @default [] */
       services_to_clone_ids?: string[];
+      /** @default [] */
+      stacks_to_clone_ids?: string[];
       base_environment_id: string;
       clone_strategy?: components["schemas"]["CloneStrategyEnum"];
       ttl_seconds?: number | null;
@@ -3420,6 +3780,8 @@ export interface components {
       updated_at: string;
       healthy_services: number;
       total_services: number;
+      total_stack_services: number;
+      healthy_stack_services: number;
     };
     ProjectCreateRequestRequest: {
       slug?: string;
@@ -3438,6 +3800,10 @@ export interface components {
      * @enum {string}
      */
     ProjectSearchResponseTypeEnum: "project";
+    ProjectUpdateRequestRequest: {
+      slug?: string;
+      description?: string;
+    };
     ProjectsPreviewTemplatesCreateAuthEnabledErrorComponent: {
       /**
        * @description * `auth_enabled` - auth_enabled
@@ -3544,7 +3910,7 @@ export interface components {
       code: "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
       detail: string;
     };
-    ProjectsPreviewTemplatesCreateError: components["schemas"]["ProjectsPreviewTemplatesCreateNonFieldErrorsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateSlugErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateServicesToCloneIdsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateBaseEnvironmentIdErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateCloneStrategyErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateTtlSecondsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAutoTeardownErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateIsDefaultErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreatePreviewEnvLimitErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreatePreviewRootDomainErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAuthEnabledErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAuthUserErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAuthPasswordErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateEnvVariablesErrorComponent"];
+    ProjectsPreviewTemplatesCreateError: components["schemas"]["ProjectsPreviewTemplatesCreateNonFieldErrorsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateSlugErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateServicesToCloneIdsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateStacksToCloneIdsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateBaseEnvironmentIdErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateCloneStrategyErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateTtlSecondsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAutoTeardownErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateIsDefaultErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreatePreviewEnvLimitErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreatePreviewRootDomainErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAuthEnabledErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAuthUserErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateAuthPasswordErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesCreateEnvVariablesErrorComponent"];
     ProjectsPreviewTemplatesCreateErrorResponse400: components["schemas"]["ProjectsPreviewTemplatesCreateValidationError"] | components["schemas"]["ParseErrorResponse"];
     ProjectsPreviewTemplatesCreateIsDefaultErrorComponent: {
       /**
@@ -3640,6 +4006,22 @@ export interface components {
        * @enum {string}
        */
       code: "blank" | "invalid" | "max_length" | "null" | "null_characters_not_allowed" | "required" | "surrogate_characters_not_allowed";
+      detail: string;
+    };
+    ProjectsPreviewTemplatesCreateStacksToCloneIdsErrorComponent: {
+      /**
+       * @description * `stacks_to_clone_ids` - stacks_to_clone_ids
+       * @enum {string}
+       */
+      attr: "stacks_to_clone_ids";
+      /**
+       * @description * `does_not_exist` - does_not_exist
+       * * `incorrect_type` - incorrect_type
+       * * `not_a_list` - not_a_list
+       * * `null` - null
+       * @enum {string}
+       */
+      code: "does_not_exist" | "incorrect_type" | "not_a_list" | "null";
       detail: string;
     };
     ProjectsPreviewTemplatesCreateTtlSecondsErrorComponent: {
@@ -3770,7 +4152,7 @@ export interface components {
       code: "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
       detail: string;
     };
-    ProjectsPreviewTemplatesPartialUpdateError: components["schemas"]["ProjectsPreviewTemplatesPartialUpdateNonFieldErrorsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateSlugErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateServicesToCloneIdsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateBaseEnvironmentIdErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateCloneStrategyErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateTtlSecondsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAutoTeardownErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateIsDefaultErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdatePreviewEnvLimitErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdatePreviewRootDomainErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAuthEnabledErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAuthUserErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAuthPasswordErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateEnvVariablesErrorComponent"];
+    ProjectsPreviewTemplatesPartialUpdateError: components["schemas"]["ProjectsPreviewTemplatesPartialUpdateNonFieldErrorsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateSlugErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateServicesToCloneIdsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateStacksToCloneIdsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateBaseEnvironmentIdErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateCloneStrategyErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateTtlSecondsErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAutoTeardownErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateIsDefaultErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdatePreviewEnvLimitErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdatePreviewRootDomainErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAuthEnabledErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAuthUserErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateAuthPasswordErrorComponent"] | components["schemas"]["ProjectsPreviewTemplatesPartialUpdateEnvVariablesErrorComponent"];
     ProjectsPreviewTemplatesPartialUpdateErrorResponse400: components["schemas"]["ProjectsPreviewTemplatesPartialUpdateValidationError"] | components["schemas"]["ParseErrorResponse"];
     ProjectsPreviewTemplatesPartialUpdateIsDefaultErrorComponent: {
       /**
@@ -3868,6 +4250,22 @@ export interface components {
       code: "blank" | "invalid" | "max_length" | "null" | "null_characters_not_allowed" | "required" | "surrogate_characters_not_allowed";
       detail: string;
     };
+    ProjectsPreviewTemplatesPartialUpdateStacksToCloneIdsErrorComponent: {
+      /**
+       * @description * `stacks_to_clone_ids` - stacks_to_clone_ids
+       * @enum {string}
+       */
+      attr: "stacks_to_clone_ids";
+      /**
+       * @description * `does_not_exist` - does_not_exist
+       * * `incorrect_type` - incorrect_type
+       * * `not_a_list` - not_a_list
+       * * `null` - null
+       * @enum {string}
+       */
+      code: "does_not_exist" | "incorrect_type" | "not_a_list" | "null";
+      detail: string;
+    };
     ProjectsPreviewTemplatesPartialUpdateTtlSecondsErrorComponent: {
       /**
        * @description * `ttl_seconds` - ttl_seconds
@@ -3890,80 +4288,6 @@ export interface components {
     };
     ProjectsPreviewTemplatesRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsDeploymentsBuildLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
-    ProjectsServiceDetailsDeploymentsHttpLogsFieldsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
-    ProjectsServiceDetailsDeploymentsHttpLogsListError: components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListTimeErrorComponent"] | components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListRequestMethodErrorComponent"] | components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListRequestQueryErrorComponent"] | components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListRequestIdErrorComponent"] | components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListSortByErrorComponent"];
-    ProjectsServiceDetailsDeploymentsHttpLogsListErrorResponse400: components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListValidationError"] | components["schemas"]["ParseErrorResponse"];
-    ProjectsServiceDetailsDeploymentsHttpLogsListRequestIdErrorComponent: {
-      /**
-       * @description * `request_id` - request_id
-       * @enum {string}
-       */
-      attr: "request_id";
-      /**
-       * @description * `null_characters_not_allowed` - null_characters_not_allowed
-       * @enum {string}
-       */
-      code: "null_characters_not_allowed";
-      detail: string;
-    };
-    ProjectsServiceDetailsDeploymentsHttpLogsListRequestMethodErrorComponent: {
-      /**
-       * @description * `request_method` - request_method
-       * @enum {string}
-       */
-      attr: "request_method";
-      /**
-       * @description * `invalid_choice` - invalid_choice
-       * * `invalid_list` - invalid_list
-       * @enum {string}
-       */
-      code: "invalid_choice" | "invalid_list";
-      detail: string;
-    };
-    ProjectsServiceDetailsDeploymentsHttpLogsListRequestQueryErrorComponent: {
-      /**
-       * @description * `request_query` - request_query
-       * @enum {string}
-       */
-      attr: "request_query";
-      /**
-       * @description * `null_characters_not_allowed` - null_characters_not_allowed
-       * @enum {string}
-       */
-      code: "null_characters_not_allowed";
-      detail: string;
-    };
-    ProjectsServiceDetailsDeploymentsHttpLogsListSortByErrorComponent: {
-      /**
-       * @description * `sort_by` - sort_by
-       * @enum {string}
-       */
-      attr: "sort_by";
-      /**
-       * @description * `invalid_choice` - invalid_choice
-       * @enum {string}
-       */
-      code: "invalid_choice";
-      detail: string;
-    };
-    ProjectsServiceDetailsDeploymentsHttpLogsListTimeErrorComponent: {
-      /**
-       * @description * `time` - time
-       * @enum {string}
-       */
-      attr: "time";
-      /**
-       * @description * `invalid` - invalid
-       * @enum {string}
-       */
-      code: "invalid";
-      detail: string;
-    };
-    ProjectsServiceDetailsDeploymentsHttpLogsListValidationError: {
-      type: components["schemas"]["ValidationErrorEnum"];
-      errors: components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListError"][];
-    };
-    ProjectsServiceDetailsDeploymentsHttpLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsDeploymentsListError: components["schemas"]["ProjectsServiceDetailsDeploymentsListStatusErrorComponent"] | components["schemas"]["ProjectsServiceDetailsDeploymentsListQueuedAtErrorComponent"];
     ProjectsServiceDetailsDeploymentsListErrorResponse400: components["schemas"]["ProjectsServiceDetailsDeploymentsListValidationError"] | components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsDeploymentsListQueuedAtErrorComponent: {
@@ -4000,81 +4324,8 @@ export interface components {
     ProjectsServiceDetailsDeploymentsMetricsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsDeploymentsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsDeploymentsRuntimeLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ProjectsServiceDetailsDeploymentsRuntimeLogsWithContextRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsDetectedPortsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
-    ProjectsServiceDetailsHttpLogsFieldsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
-    ProjectsServiceDetailsHttpLogsListError: components["schemas"]["ProjectsServiceDetailsHttpLogsListTimeErrorComponent"] | components["schemas"]["ProjectsServiceDetailsHttpLogsListRequestMethodErrorComponent"] | components["schemas"]["ProjectsServiceDetailsHttpLogsListRequestQueryErrorComponent"] | components["schemas"]["ProjectsServiceDetailsHttpLogsListRequestIdErrorComponent"] | components["schemas"]["ProjectsServiceDetailsHttpLogsListSortByErrorComponent"];
-    ProjectsServiceDetailsHttpLogsListErrorResponse400: components["schemas"]["ProjectsServiceDetailsHttpLogsListValidationError"] | components["schemas"]["ParseErrorResponse"];
-    ProjectsServiceDetailsHttpLogsListRequestIdErrorComponent: {
-      /**
-       * @description * `request_id` - request_id
-       * @enum {string}
-       */
-      attr: "request_id";
-      /**
-       * @description * `null_characters_not_allowed` - null_characters_not_allowed
-       * @enum {string}
-       */
-      code: "null_characters_not_allowed";
-      detail: string;
-    };
-    ProjectsServiceDetailsHttpLogsListRequestMethodErrorComponent: {
-      /**
-       * @description * `request_method` - request_method
-       * @enum {string}
-       */
-      attr: "request_method";
-      /**
-       * @description * `invalid_choice` - invalid_choice
-       * * `invalid_list` - invalid_list
-       * @enum {string}
-       */
-      code: "invalid_choice" | "invalid_list";
-      detail: string;
-    };
-    ProjectsServiceDetailsHttpLogsListRequestQueryErrorComponent: {
-      /**
-       * @description * `request_query` - request_query
-       * @enum {string}
-       */
-      attr: "request_query";
-      /**
-       * @description * `null_characters_not_allowed` - null_characters_not_allowed
-       * @enum {string}
-       */
-      code: "null_characters_not_allowed";
-      detail: string;
-    };
-    ProjectsServiceDetailsHttpLogsListSortByErrorComponent: {
-      /**
-       * @description * `sort_by` - sort_by
-       * @enum {string}
-       */
-      attr: "sort_by";
-      /**
-       * @description * `invalid_choice` - invalid_choice
-       * @enum {string}
-       */
-      code: "invalid_choice";
-      detail: string;
-    };
-    ProjectsServiceDetailsHttpLogsListTimeErrorComponent: {
-      /**
-       * @description * `time` - time
-       * @enum {string}
-       */
-      attr: "time";
-      /**
-       * @description * `invalid` - invalid
-       * @enum {string}
-       */
-      code: "invalid";
-      detail: string;
-    };
-    ProjectsServiceDetailsHttpLogsListValidationError: {
-      type: components["schemas"]["ValidationErrorEnum"];
-      errors: components["schemas"]["ProjectsServiceDetailsHttpLogsListError"][];
-    };
-    ProjectsServiceDetailsHttpLogsRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceDetailsMetricsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsServiceListListErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ProjectsVariablesCreateError: components["schemas"]["ProjectsVariablesCreateNonFieldErrorsErrorComponent"] | components["schemas"]["ProjectsVariablesCreateKeyErrorComponent"] | components["schemas"]["ProjectsVariablesCreateValueErrorComponent"];
@@ -4239,6 +4490,12 @@ export interface components {
       code: "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
       detail: string;
     };
+    /**
+     * @description * `tcp` - tcp
+     * * `udp` - udp
+     * @enum {string}
+     */
+    ProtocolEnum: "tcp" | "udp";
     RailpackBuilderOptions: {
       publish_directory: string;
       is_spa: boolean;
@@ -4262,6 +4519,7 @@ export interface components {
       custom_start_command: string | null;
       is_static: boolean;
     };
+    ReDeployComposeStackErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ReDeployGitServiceError: components["schemas"]["ReDeployGitServiceNonFieldErrorsErrorComponent"] | components["schemas"]["ReDeployGitServiceIgnoreBuildCacheErrorComponent"];
     ReDeployGitServiceErrorResponse400: components["schemas"]["ReDeployGitServiceValidationError"] | components["schemas"]["ParseErrorResponse"];
     ReDeployGitServiceIgnoreBuildCacheErrorComponent: {
@@ -4297,6 +4555,7 @@ export interface components {
     };
     RecentDeploymentsListErrorResponse400: components["schemas"]["ParseErrorResponse"];
     RedeployDockerServiceErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    RegenerateComposeStackDeployTokenErrorResponse400: components["schemas"]["ParseErrorResponse"];
     RegenerateServiceDeployTokenAutoDeployEnabledErrorComponent: {
       /**
        * @description * `auto_deploy_enabled` - auto_deploy_enabled
@@ -6176,7 +6435,7 @@ export interface components {
       cpus?: number;
       memory?: components["schemas"]["MemoryLimitRequestRequest"];
     };
-    ResourceResponse: components["schemas"]["EnvironmentSearchResponse"] | components["schemas"]["ServiceSearchResponse"] | components["schemas"]["ProjectSearchResponse"];
+    ResourceResponse: components["schemas"]["EnvironmentSearchResponse"] | components["schemas"]["ServiceSearchResponse"] | components["schemas"]["ProjectSearchResponse"] | components["schemas"]["ComposeStackSearchResponse"];
     ReviewPreviewEnvDeployDecisionErrorComponent: {
       /**
        * @description * `decision` - decision
@@ -6218,6 +6477,9 @@ export interface components {
       id: string;
       service_id: string | null;
       deployment_id: string | null;
+      stack_id: string | null;
+      stack_service_name: string | null;
+      container_id: string | null;
       /** Format: date-time */
       time: string;
       timestamp: number;
@@ -6225,6 +6487,13 @@ export interface components {
       content_text: string | null;
       level: components["schemas"]["LevelEnum"];
       source: components["schemas"]["SourceEnum"];
+    };
+    RuntimeLogsContext: {
+      results: components["schemas"]["RuntimeLog"][];
+      before_count: number;
+      after_count: number;
+      /** Format: double */
+      query_time_ms: number;
     };
     RuntimeLogsSearch: {
       previous: string | null;
@@ -6402,6 +6671,24 @@ export interface components {
      */
     ServiceStatusEnum: "HEALTHY" | "UNHEALTHY" | "FAILED" | "SLEEPING" | "NOT_DEPLOYED_YET" | "DEPLOYING";
     /**
+     * @description * `new` - new
+     * * `pending` - pending
+     * * `assigned` - assigned
+     * * `accepted` - accepted
+     * * `ready` - ready
+     * * `preparing` - preparing
+     * * `starting` - starting
+     * * `running` - running
+     * * `complete` - complete
+     * * `failed` - failed
+     * * `shutdown` - shutdown
+     * * `rejected` - rejected
+     * * `orphaned` - orphaned
+     * * `remove` - remove
+     * @enum {string}
+     */
+    ServiceTaskStatus: "new" | "pending" | "assigned" | "accepted" | "ready" | "preparing" | "starting" | "running" | "complete" | "failed" | "shutdown" | "rejected" | "orphaned" | "remove";
+    /**
      * @description * `DOCKER_REGISTRY` - Docker repository
      * * `GIT_REPOSITORY` - Git repository
      * @enum {string}
@@ -6487,6 +6774,13 @@ export interface components {
     };
     ShellSshKeysDestroyErrorResponse400: components["schemas"]["ParseErrorResponse"];
     ShellSshKeysRetrieveErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    SimpleComposeStackService: {
+      id: string;
+      slug: string;
+    };
+    SimpleComposeStackServiceRequest: {
+      id?: string;
+    };
     SimpleDeployment: {
       is_current_production: boolean;
       /** Format: date-time */
@@ -6613,6 +6907,57 @@ export interface components {
       repositories_count: number;
     };
     TestRegistryCredentialsErrorResponse400: components["schemas"]["ParseErrorResponse"];
+    ToggleComposeStackDesiredStateErrorComponent: {
+      /**
+       * @description * `desired_state` - desired_state
+       * @enum {string}
+       */
+      attr: "desired_state";
+      /**
+       * @description * `invalid_choice` - invalid_choice
+       * * `null` - null
+       * * `required` - required
+       * @enum {string}
+       */
+      code: "invalid_choice" | "null" | "required";
+      detail: string;
+    };
+    ToggleComposeStackError: components["schemas"]["ToggleComposeStackNonFieldErrorsErrorComponent"] | components["schemas"]["ToggleComposeStackDesiredStateErrorComponent"] | components["schemas"]["ToggleComposeStackServiceNameErrorComponent"];
+    ToggleComposeStackErrorResponse400: components["schemas"]["ToggleComposeStackValidationError"] | components["schemas"]["ParseErrorResponse"];
+    ToggleComposeStackNonFieldErrorsErrorComponent: {
+      /**
+       * @description * `non_field_errors` - non_field_errors
+       * @enum {string}
+       */
+      attr: "non_field_errors";
+      /**
+       * @description * `invalid` - invalid
+       * @enum {string}
+       */
+      code: "invalid";
+      detail: string;
+    };
+    ToggleComposeStackServiceNameErrorComponent: {
+      /**
+       * @description * `service_name` - service_name
+       * @enum {string}
+       */
+      attr: "service_name";
+      /**
+       * @description * `blank` - blank
+       * * `invalid` - invalid
+       * * `null` - null
+       * * `null_characters_not_allowed` - null_characters_not_allowed
+       * * `surrogate_characters_not_allowed` - surrogate_characters_not_allowed
+       * @enum {string}
+       */
+      code: "blank" | "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
+      detail: string;
+    };
+    ToggleComposeStackValidationError: {
+      type: components["schemas"]["ValidationErrorEnum"];
+      errors: components["schemas"]["ToggleComposeStackError"][];
+    };
     ToggleServiceDesiredStateErrorComponent: {
       /**
        * @description * `desired_state` - desired_state
@@ -6890,14 +7235,13 @@ export interface components {
        */
       attr: "description";
       /**
-       * @description * `blank` - blank
-       * * `invalid` - invalid
+       * @description * `invalid` - invalid
        * * `null` - null
        * * `null_characters_not_allowed` - null_characters_not_allowed
        * * `surrogate_characters_not_allowed` - surrogate_characters_not_allowed
        * @enum {string}
        */
-      code: "blank" | "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
+      code: "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
       detail: string;
     };
     UpdateProjectError: components["schemas"]["UpdateProjectNonFieldErrorsErrorComponent"] | components["schemas"]["UpdateProjectSlugErrorComponent"] | components["schemas"]["UpdateProjectDescriptionErrorComponent"];
@@ -7111,6 +7455,59 @@ export interface components {
       id?: string;
       name: string;
       container_path: string;
+    };
+    WebhookDeployComposeStackCommitMessageErrorComponent: {
+      /**
+       * @description * `commit_message` - commit_message
+       * @enum {string}
+       */
+      attr: "commit_message";
+      /**
+       * @description * `blank` - blank
+       * * `invalid` - invalid
+       * * `null` - null
+       * * `null_characters_not_allowed` - null_characters_not_allowed
+       * * `surrogate_characters_not_allowed` - surrogate_characters_not_allowed
+       * @enum {string}
+       */
+      code: "blank" | "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
+      detail: string;
+    };
+    WebhookDeployComposeStackError: components["schemas"]["WebhookDeployComposeStackNonFieldErrorsErrorComponent"] | components["schemas"]["WebhookDeployComposeStackCommitMessageErrorComponent"] | components["schemas"]["WebhookDeployComposeStackUserContentErrorComponent"];
+    WebhookDeployComposeStackErrorResponse400: components["schemas"]["WebhookDeployComposeStackValidationError"] | components["schemas"]["ParseErrorResponse"];
+    WebhookDeployComposeStackNonFieldErrorsErrorComponent: {
+      /**
+       * @description * `non_field_errors` - non_field_errors
+       * @enum {string}
+       */
+      attr: "non_field_errors";
+      /**
+       * @description * `invalid` - invalid
+       * @enum {string}
+       */
+      code: "invalid";
+      detail: string;
+    };
+    WebhookDeployComposeStackUserContentErrorComponent: {
+      /**
+       * @description * `user_content` - user_content
+       * @enum {string}
+       */
+      attr: "user_content";
+      /**
+       * @description * `blank` - blank
+       * * `invalid` - invalid
+       * * `null` - null
+       * * `null_characters_not_allowed` - null_characters_not_allowed
+       * * `surrogate_characters_not_allowed` - surrogate_characters_not_allowed
+       * @enum {string}
+       */
+      code: "blank" | "invalid" | "null" | "null_characters_not_allowed" | "surrogate_characters_not_allowed";
+      detail: string;
+    };
+    WebhookDeployComposeStackValidationError: {
+      type: components["schemas"]["ValidationErrorEnum"];
+      errors: components["schemas"]["WebhookDeployComposeStackError"][];
     };
     WebhookDockerDeployServiceCleanupQueueErrorComponent: {
       /**
@@ -7678,8 +8075,64 @@ export interface operations {
       };
     };
   };
+  /**
+   * Webhook to deploy a compose stack
+   * @description trigger a new deployment.
+   */
+  webhookDeployComposeStack: {
+    parameters: {
+      path: {
+        deploy_token: string;
+      };
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ComposeStackWebhookDeployRequestRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ComposeStackWebhookDeployRequestRequest"];
+        "multipart/form-data": components["schemas"]["ComposeStackWebhookDeployRequestRequest"];
+      };
+    };
+    responses: {
+      /** @description No response body */
+      202: {
+        content: never;
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["WebhookDeployComposeStackErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
   compose_stacks_list: {
     parameters: {
+      query?: {
+        slug?: string;
+        /**
+         * @description Ordering
+         *
+         * * `slug` - Slug
+         * * `-slug` - Slug (descending)
+         * * `updated_at` - Updated at
+         * * `-updated_at` - Updated at (descending)
+         */
+        sort_by?: ("-slug" | "-updated_at" | "slug" | "updated_at")[];
+      };
       path: {
         env_slug: string;
         project_slug: string;
@@ -7793,6 +8246,219 @@ export interface operations {
       };
     };
   };
+  /** Archive a compose stack */
+  archiveComposeStack: {
+    parameters: {
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      /** @description No response body */
+      204: {
+        content: never;
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ArchiveComposeStackErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Cancel stack change */
+  cancelStackChanges: {
+    parameters: {
+      path: {
+        change_id: string;
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      /** @description No response body */
+      204: {
+        content: never;
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["CancelStackChangesErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse409"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Queue a new deployment for the compose stack */
+  deployComposeStack: {
+    parameters: {
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ComposeStackDeployRequestRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ComposeStackDeployRequestRequest"];
+        "multipart/form-data": components["schemas"]["ComposeStackDeployRequestRequest"];
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["ComposeStackDeployment"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["DeployComposeStackErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Rollback to a previous version of the compose stack */
+  reDeployComposeStack: {
+    parameters: {
+      path: {
+        env_slug: string;
+        hash: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["ComposeStackDeployment"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ReDeployComposeStackErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get a list of all the deployments for a compose stack */
+  listComposeStackDeployments: {
+    parameters: {
+      query?: {
+        /** @description A page number within the paginated result set. */
+        page?: number;
+        /** @description Number of results to return per page. */
+        per_page?: number;
+        queued_at_after?: string;
+        queued_at_before?: string;
+        /**
+         * @description * `QUEUED` - Queued
+         * * `DEPLOYING` - Deploying
+         * * `FINISHED` - Finished
+         * * `FAILED` - Failed
+         * * `CANCELLED` - Cancelled
+         */
+        status?: ("CANCELLED" | "DEPLOYING" | "FAILED" | "FINISHED" | "QUEUED")[];
+      };
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["PaginatedComposeStackDeploymentList"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ListComposeStackDeploymentsErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
   /** Get a compose stack deployment details */
   getComposeStackDeploymentDetails: {
     parameters: {
@@ -7831,23 +8497,29 @@ export interface operations {
       };
     };
   };
-  /** Archive a compose stack */
-  archiveComposeStack: {
+  /** Get stack build logs */
+  compose_stacks_deployments_build_logs_retrieve: {
     parameters: {
+      query?: {
+        cursor?: string;
+        per_page?: number;
+      };
       path: {
         env_slug: string;
+        hash: string;
         project_slug: string;
         slug: string;
       };
     };
     responses: {
-      /** @description No response body */
-      204: {
-        content: never;
+      200: {
+        content: {
+          "application/json": components["schemas"]["RuntimeLogsSearch"];
+        };
       };
       400: {
         content: {
-          "application/json": components["schemas"]["ArchiveComposeStackErrorResponse400"];
+          "application/json": components["schemas"]["ComposeStacksDeploymentsBuildLogsRetrieveErrorResponse400"];
         };
       };
       401: {
@@ -7867,20 +8539,17 @@ export interface operations {
       };
     };
   };
-  /** Queue a new deployment for the compose stack */
-  deployComposeStack: {
+  /**
+   * Cancel compose stack deployment
+   * @description Cancel a compose stack deployment in progress.
+   */
+  cancelComposeStackDeployment: {
     parameters: {
       path: {
         env_slug: string;
+        hash: string;
         project_slug: string;
         slug: string;
-      };
-    };
-    requestBody?: {
-      content: {
-        "application/json": components["schemas"]["ComposeStackDeployRequestRequest"];
-        "application/x-www-form-urlencoded": components["schemas"]["ComposeStackDeployRequestRequest"];
-        "multipart/form-data": components["schemas"]["ComposeStackDeployRequestRequest"];
       };
     };
     responses: {
@@ -7891,7 +8560,97 @@ export interface operations {
       };
       400: {
         content: {
-          "application/json": components["schemas"]["DeployComposeStackErrorResponse400"];
+          "application/json": components["schemas"]["CancelComposeStackDeploymentErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse409"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get stack metrics */
+  compose_stacks_metrics_list: {
+    parameters: {
+      query?: {
+        service_names?: string[];
+        /**
+         * @description * `LAST_HOUR` - LAST_HOUR
+         * * `LAST_6HOURS` - LAST_6HOURS
+         * * `LAST_DAY` - LAST_DAY
+         * * `LAST_WEEK` - LAST_WEEK
+         * * `LAST_MONTH` - LAST_MONTH
+         */
+        time_range?: "LAST_HOUR" | "LAST_6HOURS" | "LAST_DAY" | "LAST_WEEK" | "LAST_MONTH";
+      };
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["ComposeStackMetrics"][];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ComposeStacksMetricsListErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Regenerate a compose stack deploy token */
+  regenerateComposeStackDeployToken: {
+    parameters: {
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["ComposeStack"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["RegenerateComposeStackDeployTokenErrorResponse400"];
         };
       };
       401: {
@@ -7946,6 +8705,147 @@ export interface operations {
       404: {
         content: {
           "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get stack runtime logs */
+  compose_stacks_runtime_logs_retrieve: {
+    parameters: {
+      query?: {
+        container_id?: string;
+        cursor?: string;
+        level?: ("INFO" | "ERROR")[];
+        per_page?: number;
+        query?: string;
+        stack_service_name?: string;
+        time_after?: string;
+        time_before?: string;
+      };
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["RuntimeLogsSearch"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ComposeStacksRuntimeLogsRetrieveErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get stack runtime logs with context */
+  compose_stacks_runtime_logs_with_context_retrieve: {
+    parameters: {
+      query: {
+        container_id?: string;
+        lines?: number;
+        stack_service_name: string;
+      };
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+        time: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["RuntimeLogsContext"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ComposeStacksRuntimeLogsWithContextRetrieveErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /**
+   * Stop/Start a compose stack
+   * @description Stops all services in a compose stack (scales to 0) or starts them back up.
+   */
+  toggleComposeStack: {
+    parameters: {
+      path: {
+        env_slug: string;
+        project_slug: string;
+        slug: string;
+      };
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["ComposeStackToggleRequestRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ComposeStackToggleRequestRequest"];
+        "multipart/form-data": components["schemas"]["ComposeStackToggleRequestRequest"];
+      };
+    };
+    responses: {
+      /** @description No response body */
+      202: {
+        content: never;
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ToggleComposeStackErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      409: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse409"];
         };
       };
       429: {
@@ -8767,6 +9667,156 @@ export interface operations {
       400: {
         content: {
           "application/json": components["schemas"]["SearchDockerRegistryErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get HTTP logs */
+  http_logs_list: {
+    parameters: {
+      query?: {
+        /** @description The pagination cursor value. */
+        cursor?: string;
+        deployment_id?: string;
+        /** @description Number of results to return per page. */
+        per_page?: number;
+        /** @description Multiple values may be separated by commas. */
+        request_host?: string[];
+        /** @description Multiple values may be separated by commas. */
+        request_ip?: string[];
+        /**
+         * @description * `GET` - GET
+         * * `POST` - POST
+         * * `PUT` - PUT
+         * * `DELETE` - DELETE
+         * * `PATCH` - PATCH
+         * * `OPTIONS` - OPTIONS
+         * * `HEAD` - HEAD
+         */
+        request_method?: ("DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT")[];
+        /** @description Multiple values may be separated by commas. */
+        request_path?: string[];
+        request_query?: string;
+        /** @description Multiple values may be separated by commas. */
+        request_user_agent?: string[];
+        service_id?: string;
+        /**
+         * @description Ordering
+         *
+         * * `time` - Time
+         * * `-time` - Time (descending)
+         * * `request_duration_ns` - Request duration ns
+         * * `-request_duration_ns` - Request duration ns (descending)
+         */
+        sort_by?: ("-request_duration_ns" | "-time" | "request_duration_ns" | "time")[];
+        stack_id?: string;
+        /** @description Multiple values may be separated by commas. */
+        stack_service_name?: string[];
+        /** @description Multiple values may be separated by commas. */
+        status?: string[];
+        time_after?: string;
+        time_before?: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["PaginatedHttpLogList"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["HttpLogsListErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get single http log */
+  http_logs_retrieve: {
+    parameters: {
+      path: {
+        request_uuid: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["HttpLog"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["HttpLogsRetrieveErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
+  /** Get http logs fields values */
+  http_logs_fields_list: {
+    parameters: {
+      query: {
+        deployment_hash?: string;
+        /**
+         * @description * `request_host` - request_host
+         * * `request_path` - request_path
+         * * `request_user_agent` - request_user_agent
+         * * `request_ip` - request_ip
+         */
+        field: "request_host" | "request_path" | "request_user_agent" | "request_ip";
+        service_id?: string;
+        stack_id?: string;
+        value: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": string[];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["HttpLogsFieldsListErrorResponse400"];
         };
       };
       401: {
@@ -9752,170 +10802,6 @@ export interface operations {
       };
     };
   };
-  /** Get deployment HTTP logs */
-  projects_service_details_deployments_http_logs_list: {
-    parameters: {
-      query?: {
-        /** @description The pagination cursor value. */
-        cursor?: string;
-        /** @description Number of results to return per page. */
-        per_page?: number;
-        /** @description Multiple values may be separated by commas. */
-        request_host?: string[];
-        request_id?: string;
-        /** @description Multiple values may be separated by commas. */
-        request_ip?: string[];
-        /**
-         * @description * `GET` - GET
-         * * `POST` - POST
-         * * `PUT` - PUT
-         * * `DELETE` - DELETE
-         * * `PATCH` - PATCH
-         * * `OPTIONS` - OPTIONS
-         * * `HEAD` - HEAD
-         */
-        request_method?: ("DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT")[];
-        /** @description Multiple values may be separated by commas. */
-        request_path?: string[];
-        request_query?: string;
-        /** @description Multiple values may be separated by commas. */
-        request_user_agent?: string[];
-        /**
-         * @description Ordering
-         *
-         * * `time` - Time
-         * * `-time` - Time (descending)
-         * * `request_duration_ns` - Request duration ns
-         * * `-request_duration_ns` - Request duration ns (descending)
-         */
-        sort_by?: ("-request_duration_ns" | "-time" | "request_duration_ns" | "time")[];
-        /** @description Multiple values may be separated by commas. */
-        status?: string[];
-        time_after?: string;
-        time_before?: string;
-      };
-      path: {
-        deployment_hash: string;
-        env_slug: string;
-        project_slug: string;
-        service_slug: string;
-      };
-    };
-    responses: {
-      200: {
-        content: {
-          "application/json": components["schemas"]["PaginatedHttpLogList"];
-        };
-      };
-      400: {
-        content: {
-          "application/json": components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsListErrorResponse400"];
-        };
-      };
-      401: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse401"];
-        };
-      };
-      404: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse404"];
-        };
-      };
-      429: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse429"];
-        };
-      };
-    };
-  };
-  /** Get single deployment http log */
-  projects_service_details_deployments_http_logs_retrieve: {
-    parameters: {
-      path: {
-        deployment_hash: string;
-        env_slug: string;
-        project_slug: string;
-        request_uuid: string;
-        service_slug: string;
-      };
-    };
-    responses: {
-      200: {
-        content: {
-          "application/json": components["schemas"]["HttpLog"];
-        };
-      };
-      400: {
-        content: {
-          "application/json": components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsRetrieveErrorResponse400"];
-        };
-      };
-      401: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse401"];
-        };
-      };
-      404: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse404"];
-        };
-      };
-      429: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse429"];
-        };
-      };
-    };
-  };
-  /** Get deployment http logs fields values */
-  projects_service_details_deployments_http_logs_fields_list: {
-    parameters: {
-      query: {
-        /**
-         * @description * `request_host` - request_host
-         * * `request_path` - request_path
-         * * `request_user_agent` - request_user_agent
-         * * `request_ip` - request_ip
-         */
-        field: "request_host" | "request_path" | "request_user_agent" | "request_ip";
-        value: string;
-      };
-      path: {
-        deployment_hash: string;
-        env_slug: string;
-        project_slug: string;
-        service_slug: string;
-      };
-    };
-    responses: {
-      200: {
-        content: {
-          "application/json": string[];
-        };
-      };
-      400: {
-        content: {
-          "application/json": components["schemas"]["ProjectsServiceDetailsDeploymentsHttpLogsFieldsListErrorResponse400"];
-        };
-      };
-      401: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse401"];
-        };
-      };
-      404: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse404"];
-        };
-      };
-      429: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse429"];
-        };
-      };
-    };
-  };
   /** Get service or deployment metrics */
   projects_service_details_deployments_metrics_list: {
     parameters: {
@@ -10010,6 +10896,48 @@ export interface operations {
       };
     };
   };
+  /** Get deployment logs with context */
+  projects_service_details_deployments_runtime_logs_with_context_retrieve: {
+    parameters: {
+      query?: {
+        lines?: number;
+      };
+      path: {
+        deployment_hash: string;
+        env_slug: string;
+        project_slug: string;
+        service_slug: string;
+        time: string;
+      };
+    };
+    responses: {
+      200: {
+        content: {
+          "application/json": components["schemas"]["RuntimeLogsContext"];
+        };
+      };
+      400: {
+        content: {
+          "application/json": components["schemas"]["ProjectsServiceDetailsDeploymentsRuntimeLogsWithContextRetrieveErrorResponse400"];
+        };
+      };
+      401: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse401"];
+        };
+      };
+      404: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse404"];
+        };
+      };
+      429: {
+        content: {
+          "application/json": components["schemas"]["ErrorResponse429"];
+        };
+      };
+    };
+  };
   /** Get detected service ports */
   projects_service_details_detected_ports_list: {
     parameters: {
@@ -10028,167 +10956,6 @@ export interface operations {
       400: {
         content: {
           "application/json": components["schemas"]["ProjectsServiceDetailsDetectedPortsListErrorResponse400"];
-        };
-      };
-      401: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse401"];
-        };
-      };
-      404: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse404"];
-        };
-      };
-      429: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse429"];
-        };
-      };
-    };
-  };
-  /** Get service HTTP logs */
-  projects_service_details_http_logs_list: {
-    parameters: {
-      query?: {
-        /** @description The pagination cursor value. */
-        cursor?: string;
-        /** @description Number of results to return per page. */
-        per_page?: number;
-        /** @description Multiple values may be separated by commas. */
-        request_host?: string[];
-        request_id?: string;
-        /** @description Multiple values may be separated by commas. */
-        request_ip?: string[];
-        /**
-         * @description * `GET` - GET
-         * * `POST` - POST
-         * * `PUT` - PUT
-         * * `DELETE` - DELETE
-         * * `PATCH` - PATCH
-         * * `OPTIONS` - OPTIONS
-         * * `HEAD` - HEAD
-         */
-        request_method?: ("DELETE" | "GET" | "HEAD" | "OPTIONS" | "PATCH" | "POST" | "PUT")[];
-        /** @description Multiple values may be separated by commas. */
-        request_path?: string[];
-        request_query?: string;
-        /** @description Multiple values may be separated by commas. */
-        request_user_agent?: string[];
-        /**
-         * @description Ordering
-         *
-         * * `time` - Time
-         * * `-time` - Time (descending)
-         * * `request_duration_ns` - Request duration ns
-         * * `-request_duration_ns` - Request duration ns (descending)
-         */
-        sort_by?: ("-request_duration_ns" | "-time" | "request_duration_ns" | "time")[];
-        /** @description Multiple values may be separated by commas. */
-        status?: string[];
-        time_after?: string;
-        time_before?: string;
-      };
-      path: {
-        env_slug: string;
-        project_slug: string;
-        service_slug: string;
-      };
-    };
-    responses: {
-      200: {
-        content: {
-          "application/json": components["schemas"]["PaginatedHttpLogList"];
-        };
-      };
-      400: {
-        content: {
-          "application/json": components["schemas"]["ProjectsServiceDetailsHttpLogsListErrorResponse400"];
-        };
-      };
-      401: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse401"];
-        };
-      };
-      404: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse404"];
-        };
-      };
-      429: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse429"];
-        };
-      };
-    };
-  };
-  /** Get single service http log */
-  projects_service_details_http_logs_retrieve: {
-    parameters: {
-      path: {
-        env_slug: string;
-        project_slug: string;
-        request_uuid: string;
-        service_slug: string;
-      };
-    };
-    responses: {
-      200: {
-        content: {
-          "application/json": components["schemas"]["HttpLog"];
-        };
-      };
-      400: {
-        content: {
-          "application/json": components["schemas"]["ProjectsServiceDetailsHttpLogsRetrieveErrorResponse400"];
-        };
-      };
-      401: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse401"];
-        };
-      };
-      404: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse404"];
-        };
-      };
-      429: {
-        content: {
-          "application/json": components["schemas"]["ErrorResponse429"];
-        };
-      };
-    };
-  };
-  /** Get service http logs fields values */
-  projects_service_details_http_logs_fields_list: {
-    parameters: {
-      query: {
-        /**
-         * @description * `request_host` - request_host
-         * * `request_path` - request_path
-         * * `request_user_agent` - request_user_agent
-         * * `request_ip` - request_ip
-         */
-        field: "request_host" | "request_path" | "request_user_agent" | "request_ip";
-        value: string;
-      };
-      path: {
-        env_slug: string;
-        project_slug: string;
-        service_slug: string;
-      };
-    };
-    responses: {
-      200: {
-        content: {
-          "application/json": string[];
-        };
-      };
-      400: {
-        content: {
-          "application/json": components["schemas"]["ProjectsServiceDetailsHttpLogsFieldsListErrorResponse400"];
         };
       };
       401: {
@@ -10818,21 +11585,29 @@ export interface operations {
       };
     };
   };
-  /** Archive a Project */
-  archiveSingleProject: {
+  /** Update a project */
+  updateProject: {
     parameters: {
       path: {
         slug: string;
       };
     };
+    requestBody?: {
+      content: {
+        "application/json": components["schemas"]["ProjectUpdateRequestRequest"];
+        "application/x-www-form-urlencoded": components["schemas"]["ProjectUpdateRequestRequest"];
+        "multipart/form-data": components["schemas"]["ProjectUpdateRequestRequest"];
+      };
+    };
     responses: {
-      /** @description No response body */
       200: {
-        content: never;
+        content: {
+          "application/json": components["schemas"]["Project"];
+        };
       };
       400: {
         content: {
-          "application/json": components["schemas"]["ArchiveSingleProjectErrorResponse400"];
+          "application/json": components["schemas"]["UpdateProjectErrorResponse400"];
         };
       };
       401: {
@@ -10852,29 +11627,21 @@ export interface operations {
       };
     };
   };
-  /** Update a project */
-  updateProject: {
+  /** Archive a Project */
+  archiveSingleProject: {
     parameters: {
       path: {
         slug: string;
       };
     };
-    requestBody?: {
-      content: {
-        "application/json": components["schemas"]["PatchedProjectUpdateRequestRequest"];
-        "application/x-www-form-urlencoded": components["schemas"]["PatchedProjectUpdateRequestRequest"];
-        "multipart/form-data": components["schemas"]["PatchedProjectUpdateRequestRequest"];
-      };
-    };
     responses: {
+      /** @description No response body */
       200: {
-        content: {
-          "application/json": components["schemas"]["Project"];
-        };
+        content: never;
       };
       400: {
         content: {
-          "application/json": components["schemas"]["UpdateProjectErrorResponse400"];
+          "application/json": components["schemas"]["ArchiveSingleProjectErrorResponse400"];
         };
       };
       401: {

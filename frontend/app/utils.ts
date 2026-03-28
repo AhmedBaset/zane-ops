@@ -91,7 +91,7 @@ export async function getCsrfTokenHeader() {
 
 export function timeAgoFormatter(
   dateInput: string | Date,
-  short: boolean = false
+  short = false
 ): string {
   const date = new Date(dateInput);
   const now = new Date();
@@ -284,7 +284,7 @@ export function formatStorageValue(value: number) {
   };
 }
 
-export function formatTimeValue(value: number) {
+export function formatDuration(value: number) {
   const ms = 1;
   const sec = 1000 * ms;
   const min = 60 * sec;
@@ -361,8 +361,8 @@ export function durationToMs(
 
 export function stripSlashIfExists(
   url: string,
-  stripEnd: boolean = true,
-  stripStart: boolean = false
+  stripEnd = true,
+  stripStart = false
 ): string {
   let finalUrl: string = url;
   if (stripEnd && url.endsWith("/")) {
@@ -378,7 +378,7 @@ export function getDockerImageIconURL(image: string) {
   let iconSrc: string | null = null;
 
   const imageWithoutTag = image.split(":")[0];
-  let isDockerHubImage =
+  const isDockerHubImage =
     !imageWithoutTag.startsWith("ghcr.io") && !imageWithoutTag.includes(".");
 
   if (imageWithoutTag.startsWith("ghcr.io")) {
@@ -392,4 +392,60 @@ export function getDockerImageIconURL(image: string) {
   }
   // Other registries are ignored
   return iconSrc;
+}
+
+const CONTAINER_ID_COLORS = [
+  "blue",
+  "emerald",
+  "violet",
+  "orange",
+  "pink",
+  "teal",
+  "amber",
+  "indigo",
+  "green",
+  "red",
+  "cyan",
+  "purple",
+  "lime",
+  "rose",
+  "sky",
+  "fuchsia"
+];
+
+export function stringToColor(str: string): {
+  light: string;
+  dark: string;
+} {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const color =
+    CONTAINER_ID_COLORS[Math.abs(hash) % CONTAINER_ID_COLORS.length];
+  return {
+    light: `var(--color-${color}-700)`,
+    dark: `var(--color-${color}-400)`
+  };
+}
+
+export function getMaxDomainForStorageValue(maxValueInBytes: number) {
+  const _100Kb = convertValueToBytes(100, "KILOBYTES");
+  const _10Mb = convertValueToBytes(10, "MEGABYTES");
+  const _100Mb = convertValueToBytes(100, "MEGABYTES");
+  const _500Mb = convertValueToBytes(500, "MEGABYTES");
+  const _1GB = convertValueToBytes(1, "GIGABYTES");
+
+  return (
+    maxValueInBytes +
+    (maxValueInBytes > _1GB
+      ? _1GB
+      : maxValueInBytes > _500Mb
+        ? _500Mb
+        : maxValueInBytes > _100Mb
+          ? _100Mb
+          : maxValueInBytes > _10Mb
+            ? _10Mb
+            : _100Kb)
+  );
 }

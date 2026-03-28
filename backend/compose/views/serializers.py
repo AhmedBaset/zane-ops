@@ -1,9 +1,11 @@
 import base64
 import json
+import secrets
 import subprocess
 import tempfile
 import tomllib
 from typing import Any, cast
+import django_filters
 from rest_framework import serializers
 import yaml
 from ..models import (
@@ -17,13 +19,18 @@ import time
 from ..processor import ComposeSpecProcessor
 from zane_api.models import Project, Environment
 from django.core.exceptions import ValidationError
-from ..dtos import ComposeStackServiceStatus
+from ..dtos import ComposeStackServiceStatus, ComposeStackEnvOverrideDto
 from zane_api.utils import DockerSwarmTaskState, EnhancedJSONEncoder
 from django.db import transaction
 from zane_api.views.serializers import EnvRequestSerializer
 from django.utils.translation import gettext_lazy as _
 from drf_standardized_errors.formatter import ExceptionFormatter
 from zane_api.serializers import URLDomainField, URLPathField
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
+from search.dtos import RuntimeLogLevel
+from search.serializers import RuntimeLogsContextParamsSerializer
+from rest_framework import pagination
 
 
 class ComposeStackChangeSerializer(serializers.ModelSerializer):
@@ -60,15 +67,61 @@ class ComposeStackServiceTask(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=[state.value for state in DockerSwarmTaskState]
     )
+    desired_status = serializers.ChoiceField(
+        choices=[state.value for state in DockerSwarmTaskState]
+    )
+    id = serializers.CharField()
+    version = serializers.IntegerField()
+    slot = serializers.IntegerField()
+    name = serializers.CharField()
+    container_id = serializers.CharField(required=False, allow_null=True)
     image = serializers.CharField()
     message = serializers.CharField()
+    created_at = serializers.DateTimeField()
+    updated_at = serializers.DateTimeField()
     exit_code = serializers.IntegerField(required=False, allow_null=True)
 
 
+class ComposeStackServiceEnvVarSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    value = serializers.CharField()
+
+
+class ComposeStackServiceVolumeSerializer(serializers.Serializer):
+    source = serializers.CharField()
+    target = serializers.CharField()
+    read_only = serializers.BooleanField()
+    type = serializers.ChoiceField(choices=["volume", "bind"])
+
+
+class ComposeStackServiceConfigSerializer(serializers.Serializer):
+    source = serializers.CharField()
+    target = serializers.CharField()
+    content = serializers.CharField()
+
+
+class ComposeStackServicePortSerializer(serializers.Serializer):
+    published = serializers.IntegerField()
+    target = serializers.IntegerField()
+    protocol = serializers.ChoiceField(choices=["tcp", "udp"])
+
+
+class ComposeStackServiceHealthCheckSerializer(serializers.Serializer):
+    command = serializers.CharField()
+    retries = serializers.IntegerField(required=False, allow_null=True)
+    timeout_sec = serializers.IntegerField(required=False, allow_null=True)
+    interval_sec = serializers.IntegerField(required=False, allow_null=True)
+    start_period = serializers.IntegerField(required=False, allow_null=True)
+    start_interval = serializers.IntegerField(required=False, allow_null=True)
+
+
 class ComposeStackServiceStatusSerializer(serializers.Serializer):
+    id = serializers.CharField()
     status = serializers.ChoiceField(
         choices=[state for state in ComposeStackServiceStatus.values()]
     )
+    network_alias = serializers.CharField()
+    global_alias = serializers.CharField()
     running_replicas = serializers.IntegerField()
     desired_replicas = serializers.IntegerField()
     updated_at = serializers.DateTimeField()
@@ -81,6 +134,13 @@ class ComposeStackServiceStatusSerializer(serializers.Serializer):
             "replicated-job",
             "global-job",
         ]  # same as docker
+    )
+    environment = ComposeStackServiceEnvVarSerializer(many=True)
+    volumes = ComposeStackServiceVolumeSerializer(many=True)
+    configs = ComposeStackServiceConfigSerializer(many=True)
+    ports = ComposeStackServicePortSerializer(many=True)
+    healthcheck = ComposeStackServiceHealthCheckSerializer(
+        required=False, allow_null=True
     )
 
 
@@ -100,7 +160,7 @@ class ComposeStackSerializer(serializers.ModelSerializer):
     configs = serializers.DictField(
         child=ComposeConfigVersionSerializer(), read_only=True
     )
-    service_statuses = serializers.DictField(
+    services = serializers.DictField(
         child=ComposeStackServiceStatusSerializer(),
         read_only=True,
     )
@@ -114,16 +174,27 @@ class ComposeStackSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    def validate_user_content(self, user_content: str):
+        try:
+            ComposeSpecProcessor.validate_compose_file_syntax(user_content)
+        except ValidationError as e:
+            raise serializers.ValidationError(e.messages)
+        except serializers.ValidationError as e:
+            formated: dict[str, Any] = ExceptionFormatter(e, self.context, e).run()  # type: ignore
+            raise serializers.ValidationError(
+                [
+                    f"Invalid compose file: `{error['attr']}: {error['detail']}`"
+                    for error in formated["errors"]
+                ]
+            )
+
+        return user_content
+
     @transaction.atomic()
     def create(self, validated_data: dict):
         project = cast(Project, self.context["project"])
         environment = cast(Environment, self.context["environment"])
         user_content = validated_data["user_content"]
-
-        try:
-            ComposeSpecProcessor.validate_compose_file_syntax(user_content)
-        except ValidationError as e:
-            raise serializers.ValidationError({"user_content": e.messages})
 
         slug = validated_data["slug"]
         if ComposeStack.objects.filter(
@@ -142,12 +213,24 @@ class ComposeStackSerializer(serializers.ModelSerializer):
             environment=environment,
             slug=slug,
             network_alias_prefix=f"zn-{slug}",
+            deploy_token=secrets.token_hex(16),
         )
 
-        artifacts = ComposeSpecProcessor.compile_stack_for_deployment(
-            user_content=user_content,
-            stack=stack,
-        )
+        try:
+            artifacts = ComposeSpecProcessor.compile_stack_for_deployment(
+                user_content=user_content,
+                stack=stack,
+            )
+        except serializers.ValidationError as e:
+            formated: dict[str, Any] = ExceptionFormatter(e, self.context, e).run()  # type: ignore
+            raise serializers.ValidationError(
+                {
+                    "user_content": [
+                        f"Invalid compose file: `{error['attr']}: {error['detail']}`"
+                        for error in formated["errors"]
+                    ]
+                }
+            )
 
         changes = [
             ComposeStackChange(
@@ -174,6 +257,13 @@ class ComposeStackSerializer(serializers.ModelSerializer):
 
         return stack
 
+    def get_fields(self):
+        fields = super().get_fields()
+        writable = ["slug", "user_content"]
+        for field_name, field in fields.items():
+            field.read_only = field_name not in writable
+        return fields
+
     class Meta:
         model = ComposeStack
         fields = [
@@ -186,18 +276,25 @@ class ComposeStackSerializer(serializers.ModelSerializer):
             "urls",
             "configs",
             "env_overrides",
-            "service_statuses",
+            "services",
+            "deploy_token",
+            "created_at",
+            "name",
+            "hash_prefix",
         ]
-        extra_kwargs = {
-            "id": {"read_only": True},
-            "computed_content": {"read_only": True},
-            "name": {"read_only": True},
-            "network_alias_prefix": {"read_only": True},
-        }
 
 
 class ComposeStackUpdateSerializer(ComposeStackSerializer):
-    user_content = serializers.CharField(read_only=True)
+    def get_fields(self):
+        fields = super().get_fields()
+        for field_name, field in fields.items():
+            if field_name == "slug":
+                field.read_only = (
+                    False  # only `slug` should be writable here, rest is read-only
+                )
+            else:
+                field.read_only = True
+        return fields
 
 
 class ComposeStackSnapshotSerializer(ComposeStackSerializer):
@@ -220,6 +317,11 @@ class ComposeStackSnapshotSerializer(ComposeStackSerializer):
 class ComposeStackDeploymentSerializer(serializers.ModelSerializer):
     stack_snapshot = ComposeStackSnapshotSerializer(read_only=True)
     changes = ComposeStackChangeSerializer(many=True, read_only=True)
+    redeploy_hash = serializers.SerializerMethodField(allow_null=True)
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_redeploy_hash(self, obj: ComposeStackDeployment):
+        return obj.is_redeploy_of.hash if obj.is_redeploy_of is not None else None
 
     class Meta:
         model = ComposeStackDeployment
@@ -233,6 +335,7 @@ class ComposeStackDeploymentSerializer(serializers.ModelSerializer):
             "started_at",
             "changes",
             "finished_at",
+            "redeploy_hash",
         ]
 
 
@@ -240,9 +343,47 @@ class ComposeStackDeployRequestSerializer(serializers.Serializer):
     commit_message = serializers.CharField(default="Update stack")
 
 
-class ComposeStackArchiveRequestSerializer(serializers.Serializer):
-    delete_configs = serializers.BooleanField(default=True)
-    delete_volumes = serializers.BooleanField(default=True)
+class ComposeStacksListFilterSet(django_filters.FilterSet):
+    sort_by = django_filters.OrderingFilter(
+        fields=["slug", "updated_at"],
+    )
+    slug = django_filters.CharFilter(lookup_expr="icontains")
+
+    class Meta:
+        model = ComposeStack
+        fields = ["slug"]
+
+
+class ComposeStackWebhookDeployRequestSerializer(serializers.Serializer):
+    commit_message = serializers.CharField(default="Update stack")
+    user_content = serializers.CharField(required=False)
+
+    def validate_user_content(self, user_content: str):
+        stack: ComposeStack | None = self.context.get("stack")
+        if stack is None:
+            raise serializers.ValidationError("`stack` is required in context.")
+
+        try:
+            ComposeSpecProcessor.validate_compose_file_syntax(user_content)
+        except ValidationError as e:
+            raise serializers.ValidationError(e.messages)
+
+        # process compose stack to validate URLs
+        computed_spec = ComposeSpecProcessor.process_compose_spec(
+            user_content=user_content,
+            stack=stack,
+        )
+
+        ComposeSpecProcessor.validate_and_extract_service_urls(
+            spec=computed_spec,
+            stack=stack,
+        )
+        return user_content
+
+
+class ComposeStackToggleRequestSerializer(serializers.Serializer):
+    desired_state = serializers.ChoiceField(choices=["start", "stop"])
+    service_name = serializers.CharField(required=False)
 
 
 class BaseChangeItemSerializer(serializers.Serializer):
@@ -366,7 +507,17 @@ class ComposeContentFieldChangeSerializer(BaseFieldChangeSerializer):
         try:
             ComposeSpecProcessor.validate_compose_file_syntax(user_content)
         except ValidationError as e:
-            raise serializers.ValidationError({"user_content": e.messages})
+            raise serializers.ValidationError({"new_value": e.messages})
+        except serializers.ValidationError as e:
+            formated: dict[str, Any] = ExceptionFormatter(e, self.context, e).run()  # type: ignore
+            raise serializers.ValidationError(
+                {
+                    "new_value": [
+                        f"Invalid compose file: `{error['attr']}: {error['detail']}`"
+                        for error in formated["errors"]
+                    ]
+                }
+            )
 
         stack = self.get_stack()
 
@@ -391,11 +542,10 @@ class ComposeEnvOverrideItemChangeSerializer(BaseChangeItemSerializer):
     )
 
     def validate(self, attrs: dict):
-        super().validate(attrs)
+        attrs = super().validate(attrs)
         stack = self.get_stack()
         change_type = attrs["type"]
-        new_value = attrs.get("new_value") or {}
-        field = attrs["field"]
+        new_value = attrs.get("new_value")
         if change_type in ["DELETE", "UPDATE"]:
             item_id = attrs["item_id"]
 
@@ -410,30 +560,64 @@ class ComposeEnvOverrideItemChangeSerializer(BaseChangeItemSerializer):
                     }
                 )
 
+        # Handle double `key`
+        override_list: list[ComposeStackEnvOverrideDto] = [
+            ComposeStackEnvOverrideDto(
+                id=env.id,
+                key=env.key,
+                value=str(env.value),
+            )
+            for env in stack.env_overrides.all()
+        ]
+
+        pending_overrides = stack.unapplied_changes.filter(
+            field=ComposeStackChange.ChangeField.ENV_OVERRIDES
+        ).all()
+
+        for change in pending_overrides:
+            match change.type:
+                case ComposeStackChange.ChangeType.DELETE:
+                    old_value = cast(dict[str, str], change.old_value)
+
+                    override = ComposeStackEnvOverrideDto(
+                        id=change.item_id,
+                        key=old_value["key"],
+                        value=old_value["value"],
+                    )
+                    override_list.remove(override)
+                case ComposeStackChange.ChangeType.ADD:
+                    new_value = cast(dict[str, str], change.new_value)
+                    override = ComposeStackEnvOverrideDto(
+                        key=new_value["key"],
+                        value=new_value["value"],
+                    )
+                    override_list.append(override)
+                case ComposeStackChange.ChangeType.UPDATE:
+                    new_value = cast(dict[str, str], change.new_value)
+                    old_value = cast(dict[str, str], change.old_value)
+                    override = ComposeStackEnvOverrideDto(
+                        id=change.item_id,
+                        key=old_value["key"],
+                        value=old_value["value"],
+                    )
+                    item_index = override_list.index(override)
+                    override_list[item_index] = ComposeStackEnvOverrideDto(
+                        id=change.item_id,
+                        key=new_value["key"],
+                        value=new_value["value"],
+                    )
+
         # validate double `key`
         if new_value is not None:
-            envs_with_same_key = stack.env_overrides.filter(
-                key=new_value.get("key")
-            ).count()
-            envs_changes_with_same_key = stack.unapplied_changes.filter(
-                field=field,
-                new_value__key=new_value.get("key"),
+            total_envs_with_same_length = len(
+                [env for env in override_list if env.key == new_value["key"]]
             )
-            total_envs_with_same_length = envs_with_same_key
-            for env in envs_changes_with_same_key.all():
-                if env.type in [
-                    ComposeStackChange.ChangeType.UPDATE,
-                    ComposeStackChange.ChangeType.DELETE,
-                ]:
-                    total_envs_with_same_length -= 1
-                else:
-                    total_envs_with_same_length += 1
 
-            if total_envs_with_same_length >= 1:
+            if total_envs_with_same_length >= 2:
                 raise serializers.ValidationError(
                     {
                         "new_value": {
-                            "key": "Cannot specify two environment variables overrides with the same name for this stack"
+                            "key": "Cannot specify two environment variables overrides with the same key for this stack"
                         }
                     }
                 )
@@ -442,6 +626,7 @@ class ComposeEnvOverrideItemChangeSerializer(BaseChangeItemSerializer):
             ComposeStackChange.ChangeType.ADD,
             ComposeStackChange.ChangeType.UPDATE,
         ]:
+            new_value = cast(dict, new_value)
             key = new_value["key"]
             value = new_value["value"]
             # process compose stack to validate URLs
@@ -521,6 +706,36 @@ class DokployTemplateObjectRequestSerializer(serializers.Serializer):
     compose = serializers.CharField()
     config = serializers.CharField()
 
+    def _run_docker_validation(self, content: str) -> str | None:
+        """
+        Run docker stack config validation on YAML content.
+
+        Args:
+            content: YAML content to validate
+
+        Returns:
+            Error message if validation fails, None if successful
+        """
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".yml", delete_on_close=False
+        ) as temp_file:
+            temp_file.write(content)
+            temp_file.flush()
+
+            result = subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    temp_file.name,
+                    "config",
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            return result.stderr.strip() if result.returncode != 0 else None
+
     def validate_compose(self, content: str):
         try:
             parsed = yaml.safe_load(content)
@@ -531,29 +746,50 @@ class DokployTemplateObjectRequestSerializer(serializers.Serializer):
         except yaml.YAMLError as e:
             raise ValidationError(f"Invalid YAML syntax: {str(e)}")
         else:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".yml", delete_on_close=False
-            ) as temp_file:
-                temp_file.write(content)
-                temp_file.flush()
+            # with tempfile.NamedTemporaryFile(
+            #     mode="w", suffix=".yml", delete_on_close=False
+            # ) as temp_file:
+            #     temp_file.write(content)
+            #     temp_file.flush()
 
-                # validate compose syntax
-                result = subprocess.run(
-                    [
-                        "docker",
-                        "compose",  # we use `docker compose config` here because dokploy use the compose syntax
-                        "-f",
-                        temp_file.name,
-                        "config",
-                    ],
-                    capture_output=True,
-                    text=True,
-                )
+            #     # validate compose syntax
+            #     result = subprocess.run(
+            #         [
+            #             "docker",
+            #             "compose",  # we use `docker compose config` here because dokploy use the compose syntax
+            #             "-f",
+            #             temp_file.name,
+            #             "config",
+            #         ],
+            #         capture_output=True,
+            #         text=True,
+            #     )
 
-                if result.returncode != 0:
-                    raise serializers.ValidationError(
-                        {"compose": result.stderr.strip()}
+            #     if result.returncode != 0:
+            error = self._run_docker_validation(content)
+
+            if error:
+                # If docker rejects env_file `.env` retry by removing it
+                # to ensure there are no other validation errors
+                if error.endswith(".env: no such file or directory"):
+                    user_spec_dict = parsed
+                    # Replace config content with temporary file references
+                    for service in user_spec_dict.get("services", {}).values():
+                        if isinstance(service, dict) and "env_file" in service:
+                            del service["env_file"]
+
+                    # Retry validation with modified YAML
+                    retry_content = yaml.safe_dump(
+                        user_spec_dict, default_flow_style=False
                     )
+                    retry_error = self._run_docker_validation(retry_content)
+
+                    if retry_error:
+                        last_error = error.splitlines()[-1]
+                        raise serializers.ValidationError(last_error)
+                else:
+                    last_error = error.splitlines()[-1]
+                    raise serializers.ValidationError(last_error)
 
         return content
 
@@ -584,10 +820,18 @@ class CreateComposeStackFromDokployTemplateRequestSerializer(serializers.Seriali
             serializer.is_valid(raise_exception=True)
         except ValueError:
             raise serializers.ValidationError(
-                {
-                    "user_content": "Invalid format, it should be a base64 encoded string of a JSON object."
-                }
+                "Invalid format: it should be a base64 encoded string of a JSON object."
             )
+        except serializers.ValidationError as e:
+            formated: dict[str, Any] = ExceptionFormatter(e, self.context, e).run()  # type: ignore
+            errors = ["Could not parse Dokploy template:"]
+            errors.extend(
+                [f"{error['attr']}: {error['detail']}" for error in formated["errors"]]
+            )
+            errors.append(
+                "Please verify the template is valid on templates.dokploy.com"
+            )
+            raise serializers.ValidationError(errors)
         return user_content
 
     def validate_slug(self, slug: str):
@@ -627,3 +871,122 @@ class CreateComposeStackFromDokployTemplateObjectRequestSerializer(
             )
 
         return slug
+
+
+# =======================================
+#         Stack deployment list         #
+# =======================================
+
+
+class ComposeStackDeploymentListFilterSet(django_filters.FilterSet):
+    status = django_filters.MultipleChoiceFilter(
+        choices=ComposeStackDeployment.DeploymentStatus.choices
+    )
+    queued_at = django_filters.DateTimeFromToRangeFilter()
+
+    class Meta:
+        model = ComposeStackDeployment
+        fields = ["status", "queued_at"]
+
+
+class ComposeStackDeploymentListPagination(pagination.PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "per_page"
+    page_query_param = "page"
+
+
+# =======================================
+#             Stack metrics             #
+# =======================================
+class ComposeStackMetricsSerializer(serializers.Serializer):
+    bucket_epoch = serializers.DateTimeField()
+    avg_cpu = serializers.FloatField()
+    avg_memory = serializers.FloatField()
+    total_net_tx = serializers.IntegerField()
+    total_net_rx = serializers.IntegerField()
+    total_disk_read = serializers.IntegerField()
+    total_disk_write = serializers.IntegerField()
+    service_name = serializers.CharField()
+
+
+class ComposeStackMetricsResponseSerializer(serializers.ListSerializer):
+    child = ComposeStackMetricsSerializer()
+
+
+class ComposeStackMetricsQuery(serializers.Serializer):
+    time_range = serializers.ChoiceField(
+        choices=["LAST_HOUR", "LAST_6HOURS", "LAST_DAY", "LAST_WEEK", "LAST_MONTH"],
+        required=False,
+        default="LAST_HOUR",
+    )
+    service_names = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+# =======================================
+#           Stack runtime Logs          #
+# =======================================
+
+
+class StackRuntimeLogsQuerySerializer(serializers.Serializer):
+    time_before = serializers.DateTimeField(required=False)
+    time_after = serializers.DateTimeField(required=False)
+    query = serializers.CharField(
+        required=False, allow_blank=True, trim_whitespace=False
+    )
+    level = serializers.ListField(
+        child=serializers.ChoiceField(
+            choices=[RuntimeLogLevel.INFO, RuntimeLogLevel.ERROR]
+        ),
+        required=False,
+    )
+    per_page = serializers.IntegerField(
+        required=False, min_value=1, max_value=100, default=50
+    )
+    cursor = serializers.CharField(required=False)
+    stack_service_name = serializers.CharField(required=False)
+    container_id = serializers.CharField(required=False)
+
+    def validate_cursor(self, cursor: str):
+        try:
+            decoded_data = base64.b64decode(cursor, validate=True)
+            decoded_string = decoded_data.decode("utf-8")
+            serializer = CursorSerializer(data=json.loads(decoded_string))
+            serializer.is_valid(raise_exception=True)
+        except (serializers.ValidationError, ValueError):
+            raise serializers.ValidationError(
+                {
+                    "cursor": "Invalid cursor format, it should be a base64 encoded string of a JSON object."
+                }
+            )
+        return cursor
+
+
+class CursorSerializer(serializers.Serializer):
+    sort = serializers.ListField(required=True, child=serializers.CharField())
+    order = serializers.ChoiceField(choices=["desc", "asc"], required=True)
+
+
+class StackBuildLogsQuerySerializer(serializers.Serializer):
+    cursor = serializers.CharField(required=False)
+    per_page = serializers.IntegerField(
+        required=False, min_value=1, max_value=100, default=50
+    )
+
+    def validate_cursor(self, cursor: str):
+        try:
+            decoded_data = base64.b64decode(cursor, validate=True)
+            decoded_string = decoded_data.decode("utf-8")
+            serializer = CursorSerializer(data=json.loads(decoded_string))
+            serializer.is_valid(raise_exception=True)
+        except (serializers.ValidationError, ValueError):
+            raise serializers.ValidationError(
+                {
+                    "cursor": "Invalid cursor format, it should be a base64 encoded string of a JSON object."
+                }
+            )
+        return cursor
+
+
+class StackRuntimeLogsContextQuerySerializer(RuntimeLogsContextParamsSerializer):
+    stack_service_name = serializers.CharField(required=True)
+    container_id = serializers.CharField(required=False)

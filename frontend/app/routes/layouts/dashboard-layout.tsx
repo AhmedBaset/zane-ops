@@ -40,12 +40,7 @@ import {
   SheetHeader,
   SheetTrigger
 } from "~/components/ui/sheet";
-import {
-  resourceQueries,
-  serverQueries,
-  userQueries,
-  versionQueries
-} from "~/lib/queries";
+import { serverQueries, userQueries, versionQueries } from "~/lib/queries";
 import { cn } from "~/lib/utils";
 import { metaTitle } from "~/utils";
 
@@ -54,11 +49,10 @@ import * as React from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { useDebounce } from "use-debounce";
 import { CommandMenuSearchbar } from "~/components/command-menu-searchbar";
 import { NavigationProgress } from "~/components/navigation-progress";
 import { StatusBadge } from "~/components/status-badge";
-import { type Theme, useTheme } from "~/components/theme-provider";
+import { type Theme, useTheme } from "~/components/theme-context";
 import { Button, SubmitButton } from "~/components/ui/button";
 
 import {
@@ -186,7 +180,7 @@ export default function DashboardLayout({ loaderData }: Route.ComponentProps) {
       <Header user={user} />
       <main
         className={cn(
-          "grow container p-6 relative",
+          "grow container p-6 relative overflow-y-clip",
           !import.meta.env.PROD && "my-7"
         )}
       >
@@ -202,10 +196,10 @@ export default function DashboardLayout({ loaderData }: Route.ComponentProps) {
                   </StatusBadge>
                 </DialogTitle>
                 <DialogDescription className="border-t border-border -mx-6 px-6 pt-2">
-                  <p className="text-start text-lg font-medium">
+                  <p className="text-start text-lg font-medium text-card-foreground">
                     Release notes:
                   </p>
-                  <div className="flex my-2 flex-col gap-2.5 markdown py-2 rounded-lg bg-muted p-4">
+                  <div className="flex my-2 flex-col gap-2.5 markdown py-2 rounded-lg bg-muted p-4 max-h-[500px] overflow-auto text-card-foreground">
                     <Markdown remarkPlugins={[remarkGfm]}>
                       {latestVersion.body}
                     </Markdown>
@@ -275,7 +269,7 @@ function Header({ user }: HeaderProps) {
       {!import.meta.env.PROD && (
         <div
           className={cn(
-            "py-0.5 bg-red-500 text-white text-center fixed top-0 left-0 right-0  z-100",
+            "py-0.5 bg-red-500 text-white text-center fixed top-0 left-0 right-0  z-49",
             "w-full"
           )}
         >
@@ -456,7 +450,7 @@ const socialLinks = [
   {
     id: "sponsor",
     name: "Sponsor this project",
-    url: "https://github.com/sponsors/Fredkiss3",
+    url: "https://github.com/sponsors/zane-ops",
     icon: (
       <HeartIcon
         size={20}
@@ -498,7 +492,6 @@ function Footer() {
                   className="flex items-center gap-2 pl-2.5"
                   href={link.url}
                   target="_blank"
-                  rel="noreferrer"
                 >
                   {link.icon}
                   {link.name}
@@ -510,7 +503,6 @@ function Footer() {
                 className={cn("flex underline items-center gap-2")}
                 href={link.url}
                 target="_blank"
-                rel="noreferrer"
               >
                 {link.icon}
                 {link.name}
@@ -571,7 +563,6 @@ function Footer() {
                   className="underline font-semibold"
                   href={`https://github.com/zane-ops/zane-ops/tree/${data.commit_sha}`}
                   target="_blank"
-                  rel="noreferrer"
                 >
                   #{data.commit_sha.substring(0, 7)}
                 </a>
@@ -586,7 +577,6 @@ function Footer() {
                   className="underline font-semibold"
                   href={image_version_url}
                   target="_blank"
-                  rel="noreferrer"
                 >
                   {data.image_version}
                 </a>

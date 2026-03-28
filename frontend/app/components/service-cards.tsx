@@ -63,7 +63,7 @@ export function DockerServiceCard({
   onToggleSelect
 }: DockerServiceCardProps) {
   const [imageNotFound, setImageNotFound] = React.useState(false);
-  let iconSrc = getDockerImageIconURL(image);
+  const iconSrc = getDockerImageIconURL(image);
 
   return (
     <Card className="rounded-2xl flex group flex-col h-[220px] bg-toggle relative ring-1 ring-transparent hover:ring-primary focus-within:ring-primary transition-colors duration-300">
@@ -72,6 +72,7 @@ export function DockerServiceCard({
           <TooltipTrigger asChild>
             <span
               tabIndex={0}
+              role="button"
               className="absolute cursor-pointer flex h-4 w-4 -top-1 -right-1 z-10"
             >
               {status !== "NOT_DEPLOYED_YET" && status !== "CANCELLED" && (

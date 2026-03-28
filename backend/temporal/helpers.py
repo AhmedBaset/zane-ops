@@ -1,19 +1,17 @@
 import asyncio
+import base64
 import os
+import shlex
 import shutil
 
-from typing import Any, Coroutine, Dict, List, Literal, TypedDict, cast
+from typing import Any, Dict, List, Literal, Optional, TypedDict, cast
 from docker.models.services import Service as DockerService
+from docker.models.configs import Config as DockerConfig
 
 
-from .shared import DeploymentDetails, DeploymentURLDto, ProxyURLRoute
-from zane_api.models import (
-    Deployment,
-    URL,
-)
+from .shared import DeploymentDetails, ContainerMetrics
+
 from zane_api.utils import (
-    strip_slash_if_exists,
-    find_item_in_sequence,
     cache_result,
     excerpt,
     escape_ansi,
@@ -26,13 +24,10 @@ import docker
 import docker.errors
 from docker.models.services import Service
 from zane_api.dtos import (
-    URLDto,
     StaticDirectoryBuilderOptions,
     NixpacksBuilderOptions,
 )
 from zane_api.utils import replace_placeholders, DockerSwarmTask, DockerSwarmTaskState
-import requests
-from rest_framework import status
 from enum import Enum, auto
 from .constants import (
     SERVER_RESOURCE_LIMIT_COMMAND,
@@ -44,7 +39,6 @@ from .constants import (
 from typing import Protocol, runtime_checkable
 from datetime import timedelta
 from compose.dtos import (
-    ComposeStackUrlRouteDto,
     ComposeStackServiceStatus,
     ComposeStackSnapshot,
 )
@@ -291,847 +285,6 @@ async def deployment_log(
     )
 
 
-class ZaneProxyEtagError(Exception):
-    pass
-
-
-class ZaneProxyClient:
-    MAX_ETAG_ATTEMPTS = 3
-
-    @classmethod
-    def _get_id_for_deployment(cls, deployment_hash: str, domain: str):
-        return f"{deployment_hash}-{domain}"
-
-    @classmethod
-    def get_uri_for_deployment(cls, deployment_hash: str, domain: str):
-        return f"{settings.CADDY_PROXY_ADMIN_HOST}/id/{cls._get_id_for_deployment(deployment_hash, domain)}"
-
-    @classmethod
-    def _get_request_for_deployment_url(
-        cls, deployment: DeploymentDetails, url: DeploymentURLDto
-    ):
-        service_name = get_swarm_service_name_for_deployment(
-            deployment_hash=deployment.hash,
-            project_id=deployment.service.project_id,
-            service_id=deployment.service.id,
-        )
-
-        # This gnarly config object is so that only authenticated
-        # users can have access to this deployment
-        # It proxies the request to the API that checks that the user is authenticated before allowing the request
-        protect_deployment_proxy_handler = {
-            "handle_response": [
-                {
-                    "match": {"status_code": [2]},
-                    "routes": [
-                        {
-                            "handle": [
-                                {
-                                    "handler": "headers",
-                                    "request": {},
-                                }
-                            ]
-                        }
-                    ],
-                }
-            ],
-            "handler": "reverse_proxy",
-            "headers": {
-                "request": {
-                    "set": {
-                        "X-Forwarded-Method": ["{http.request.method}"],
-                        "X-Forwarded-Uri": ["{http.request.uri}"],
-                    }
-                }
-            },
-            "rewrite": {
-                "method": "GET",
-                "uri": "/api/auth/me/with-token",
-            },
-            "upstreams": [{"dial": settings.ZANE_FRONT_SERVICE_INTERNAL_DOMAIN}],
-        }
-
-        return {
-            "@id": cls._get_id_for_deployment(deployment.hash, url.domain),
-            "match": [{"host": [url.domain]}],
-            "handle": [
-                {
-                    "handler": "subroute",
-                    "routes": [
-                        {
-                            "handle": [
-                                protect_deployment_proxy_handler,
-                                {
-                                    "handler": "encode",
-                                    "encodings": {"gzip": {}},
-                                    "prefer": ["gzip"],
-                                },
-                                {
-                                    "flush_interval": -1,
-                                    "handler": "reverse_proxy",
-                                    "upstreams": [
-                                        {"dial": f"{service_name}:{url.port}"}
-                                    ],
-                                },
-                            ]
-                        }
-                    ],
-                }
-            ],
-        }
-
-    @classmethod
-    def _get_id_for_service_url(cls, service_id: str, url: URLDto | URL):
-        normalized_path = strip_slash_if_exists(
-            url.base_path, strip_end=True, strip_start=True
-        ).replace("/", "-")
-
-        if len(normalized_path) == 0:
-            normalized_path = "*"
-        return f"{service_id}-{url.domain}-{normalized_path}"
-
-    @classmethod
-    def _sort_routes(cls, routes: list[dict[str, list[dict[str, list[str]]]]]):
-        """
-        This function implement the same ordering as caddy to pass to the caddy proxy API
-        reference: https://caddyserver.com/docs/caddyfile/directives#sorting-algorithm
-        This code is adapated from caddy source code : https://github.com/caddyserver/caddy/blob/ddb1d2c2b11b860f1e91b43d830d283d1e1363b2/caddyconfig/httpcaddyfile/directives.go#L495-L513
-        """
-
-        def custom_order(route: dict[str, list[dict[str, list[str]]]]):
-            route_match = route.get("match")
-            route_id = route.get("@id")
-
-            if route_match is None:
-                # This is the default 404 catchall for zaneops, we want to put this route at the end
-                return 3  # Highest value to sort at the end
-            elif route_id == "frontend.zaneops.internal":
-                # Put the frontend just before the catchall
-                return 2
-            elif route_id == "api.zaneops.internal":
-                # Put the API before both frontend and catchall
-                return 1
-            else:
-                return 0  # Default for other routes
-
-        def path_specificity(route: dict[str, list[dict[str, list[str]]]]):
-            if "match" not in route or not route["match"]:
-                return (
-                    float("inf"),
-                    True,
-                    float("inf"),
-                )  # Least priority for routes with no match
-
-            path = route["match"][0].get("path", [""])[0]
-
-            # Removing trailing '*' for comparison and determining the "real" length
-            normalized_path = path.rstrip("*")
-            path_length = len(normalized_path)
-
-            return -path_length, path.endswith("*"), -len(path)
-
-        def host_specificity(route: dict[str, list[dict[str, list[str]]]]):
-            if "match" not in route or not route["match"]:
-                return "~"  # Ensures routes with no match are sorted last
-
-            host = route["match"][0].get("host", [""])[0]
-            return host
-
-        return sorted(
-            routes,
-            key=lambda route: (
-                # First, sort by path specificity,
-                path_specificity(route),
-                # Then sort by host, grouping the same hosts together
-                host_specificity(route),
-                # Then apply a custom order that put the catchall at the end
-                custom_order(route),
-            ),
-        )
-
-    @classmethod
-    def _get_request_for_service_url(
-        cls,
-        url: URLDto,
-        current_deployment: DeploymentDetails | Deployment,
-        previous_deployment: Deployment | DeploymentDetails | None,
-    ):
-        AuthDict = TypedDict("AuthDict", {"username": str, "password": str})
-        auth_options: AuthDict | None = None
-        match current_deployment:
-            case DeploymentDetails():
-                environment = current_deployment.service.environment
-                if environment.is_preview and environment.preview_metadata is not None:
-                    preview_meta = environment.preview_metadata
-                    if (
-                        preview_meta.auth_enabled
-                        and preview_meta.auth_user
-                        and preview_meta.auth_password
-                    ):
-                        auth_options = {
-                            "username": preview_meta.auth_user,
-                            "password": preview_meta.auth_password,
-                        }
-            case Deployment():
-                preview_meta = current_deployment.service.environment.preview_metadata
-                if (
-                    preview_meta is not None
-                    and preview_meta.auth_enabled
-                    and preview_meta.auth_user
-                    and preview_meta.auth_password
-                ):
-                    auth_options = {
-                        "username": preview_meta.auth_user,
-                        "password": preview_meta.auth_password,
-                    }
-
-        service = current_deployment.service
-        http_port = url.associated_port
-        blue_hash = None
-        green_hash = None
-
-        if current_deployment.slot == "BLUE":
-            blue_hash = current_deployment.hash
-        elif current_deployment.slot == "GREEN":
-            green_hash = current_deployment.hash
-
-        if previous_deployment is not None:
-            if previous_deployment.slot == "BLUE":
-                blue_hash = previous_deployment.hash
-            elif previous_deployment.slot == "GREEN":
-                green_hash = previous_deployment.hash
-
-        proxy_handlers = [
-            {
-                "handler": "log_append",
-                "key": "zane_service_id",
-                "value": service.id,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_deployment_blue_hash",
-                "value": blue_hash,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_deployment_green_hash",
-                "value": green_hash,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_deployment_upstream",
-                "value": "{http.reverse_proxy.upstream.hostport}",
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_deployment_id",
-                "value": current_deployment.hash,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_request_id",
-                "value": "{http.request.uuid}",
-            },
-            {
-                "handler": "headers",
-                "response": {
-                    "add": {
-                        "x-zane-request-id": ["{http.request.uuid}"],
-                        "x-zane-dpl-hash": [current_deployment.hash],
-                        "x-zane-dpl-slot": [current_deployment.slot.lower()],
-                    },
-                },
-                "request": {
-                    "add": {
-                        "x-request-id": ["{http.request.uuid}"],
-                    },
-                },
-            },
-        ]
-
-        if url.strip_prefix:
-            proxy_handlers.append(
-                {
-                    "handler": "rewrite",
-                    "strip_path_prefix": strip_slash_if_exists(
-                        url.base_path, strip_end=True, strip_start=False
-                    ),
-                }
-            )
-
-        if auth_options is not None:
-            import bcrypt
-
-            proxy_handlers.append(
-                {
-                    "handler": "authentication",
-                    "providers": {
-                        "http_basic": {
-                            "accounts": [
-                                {
-                                    "password": bcrypt.hashpw(
-                                        auth_options["password"].encode("utf-8"),
-                                        bcrypt.gensalt(),
-                                    ).decode("utf-8"),
-                                    "username": auth_options["username"],
-                                }
-                            ],
-                            "hash": {"algorithm": "bcrypt"},
-                            "hash_cache": {},
-                        }
-                    },
-                },
-            )
-
-        if url.redirect_to is not None:
-            proxy_handlers.append(
-                {
-                    "handler": "static_response",
-                    "headers": {
-                        "Location": [f"{url.redirect_to.url}{{http.request.uri}}"]
-                    },
-                    "status_code": (
-                        status.HTTP_308_PERMANENT_REDIRECT
-                        if url.redirect_to.permanent
-                        else status.HTTP_307_TEMPORARY_REDIRECT
-                    ),
-                }
-            )
-        else:
-            # Gzip encoding
-            proxy_handlers.append(
-                {
-                    "handler": "encode",
-                    "encodings": {"gzip": {}},
-                    "prefer": ["gzip"],
-                },
-            )
-
-            # Add final reverse proxy mapping
-            proxy_handlers.append(
-                {
-                    "handler": "reverse_proxy",
-                    "flush_interval": -1,
-                    "load_balancing": {
-                        "retries": 2,
-                    },
-                    "upstreams": [
-                        {"dial": f"{current_deployment.network_alias}:{http_port}"},
-                    ],
-                }
-            )
-
-        return {
-            "@id": cls._get_id_for_service_url(service.id, url),
-            "handle": [
-                {
-                    "handler": "subroute",
-                    "routes": [{"handle": proxy_handlers}],
-                }
-            ],
-            "match": [
-                {
-                    "path": [cls._normalize_base_path(url.base_path)],
-                    "host": [url.domain],
-                }
-            ],
-        }
-
-    @classmethod
-    def insert_deployment_urls(cls, deployment: DeploymentDetails):
-        for url in deployment.urls:
-            response = requests.get(
-                cls.get_uri_for_deployment(deployment.hash, url.domain),
-                timeout=5,
-            )
-
-            # if the domain doesn't exist we create the config for the domain
-            if response.status_code == status.HTTP_404_NOT_FOUND:
-                deployment_url = find_item_in_sequence(
-                    lambda u: u.domain == url.domain, deployment.urls
-                )
-                if deployment_url is not None:
-                    requests.put(
-                        f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes/0",
-                        headers={"content-type": "application/json"},
-                        json=cls._get_request_for_deployment_url(
-                            deployment, deployment_url
-                        ),
-                        timeout=5,
-                    )
-
-    @classmethod
-    def upsert_service_url(
-        cls,
-        url: URLDto,
-        current_deployment: DeploymentDetails | Deployment,
-        previous_deployment: Deployment | DeploymentDetails | None,
-    ) -> bool:
-        attempts = 0
-
-        while attempts < cls.MAX_ETAG_ATTEMPTS:
-            attempts += 1
-            # now we create or modify the config for the URL
-            response = requests.get(
-                f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes", timeout=5
-            )
-            etag = response.headers.get("etag")
-
-            routes: list[dict[str, dict]] = [
-                route
-                for route in response.json()
-                if route["@id"]
-                != cls._get_id_for_service_url(current_deployment.service.id, url)
-            ]
-            new_url = cls._get_request_for_service_url(
-                url=url,
-                current_deployment=current_deployment,
-                previous_deployment=previous_deployment,
-            )
-            routes.append(new_url)
-            routes = cls._sort_routes(routes)  # type: ignore
-
-            response = requests.patch(
-                f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes",
-                headers={"content-type": "application/json", "If-Match": etag},
-                json=routes,
-                timeout=5,
-            )
-            if response.status_code == status.HTTP_412_PRECONDITION_FAILED:
-                continue
-            return True
-
-        raise ZaneProxyEtagError(
-            f"Failed inserting the url {url} in the proxy because `Etag` precondition failed"
-        )
-
-    @classmethod
-    def get_uri_for_service_url(cls, service_id: str, url: URLDto | URL):
-        return f"{settings.CADDY_PROXY_ADMIN_HOST}/id/{cls._get_id_for_service_url(service_id, url)}"
-
-    @classmethod
-    def remove_service_url(cls, service_id: str, url: URLDto):
-        attempts = 0
-
-        while attempts < cls.MAX_ETAG_ATTEMPTS:
-            attempts += 1
-            response = requests.get(
-                cls.get_uri_for_service_url(service_id, url),
-                timeout=5,
-            )
-            etag = response.headers.get("etag")
-
-            if response.status_code != status.HTTP_404_NOT_FOUND:
-                response = requests.delete(
-                    cls.get_uri_for_service_url(service_id, url),
-                    headers={"If-Match": etag},
-                    timeout=5,
-                )
-                if response.status_code == status.HTTP_412_PRECONDITION_FAILED:
-                    continue
-            return
-
-        raise ZaneProxyEtagError(
-            f"Failed deleting the url {url} in the proxy because `Etag` precondtion failed"
-        )
-
-    @classmethod
-    def cleanup_old_service_urls(cls, deployment: DeploymentDetails):
-        """
-        Remove old URLs that are not attached to the service anymore
-        """
-        service = deployment.service
-        response = requests.get(
-            f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes", timeout=5
-        )
-        service_url_ids = [
-            cls._get_id_for_service_url(service.id, url) for url in service.urls
-        ]
-        for route in response.json():
-            if (
-                route["@id"].startswith(service.id)
-                and route["@id"] not in service_url_ids
-            ):
-                requests.delete(
-                    f"{settings.CADDY_PROXY_ADMIN_HOST}/id/{route['@id']}",
-                    timeout=5,
-                )
-
-    @classmethod
-    def remove_deployment_url(cls, deployment_hash: str, domain: str):
-        requests.delete(
-            cls.get_uri_for_deployment(deployment_hash, domain),
-            timeout=5,
-        )
-
-    @classmethod
-    def get_uri_for_build_registry(cls, registry_alias: str):
-        return f"{settings.CADDY_PROXY_ADMIN_HOST}/id/{registry_alias}"
-
-    @classmethod
-    def _get_request_for_build_registry(
-        cls, registry_id: str, registry_alias: str, domain: str, is_secure: bool
-    ):
-        reverse_proxy_handler = {
-            "flush_interval": -1,
-            "handler": "reverse_proxy",
-            "upstreams": [{"dial": f"{registry_alias}:5000"}],
-        }
-
-        if is_secure:
-            reverse_proxy_handler["headers"] = {
-                "request": {
-                    "set": {
-                        "X-Forwarded-Proto": ["https"],
-                    }
-                }
-            }
-
-        proxy_handlers = [
-            {
-                "handler": "log_append",
-                "key": "zane_registry_id",
-                "value": registry_id,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_service_type",
-                "value": "BUILD_REGISTRY",
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_request_id",
-                "value": "{http.request.uuid}",
-            },
-            {
-                "handler": "headers",
-                "response": {
-                    "add": {
-                        "x-zane-request-id": ["{http.request.uuid}"],
-                    },
-                },
-            },
-            {
-                "handler": "encode",
-                "encodings": {"gzip": {}},
-                "prefer": ["gzip"],
-            },
-            reverse_proxy_handler,
-        ]
-
-        return {
-            "@id": registry_alias,
-            "match": [{"host": [domain]}],
-            "handle": [
-                {
-                    "handler": "subroute",
-                    "routes": [{"handle": proxy_handlers}],
-                }
-            ],
-        }
-
-    @classmethod
-    def upsert_registry_url(
-        cls, registry_id: str, registry_alias: str, domain: str, is_secure: bool
-    ) -> bool:
-        existing_response = requests.get(
-            cls.get_uri_for_build_registry(registry_alias), timeout=5
-        )
-        existing = False
-        if existing_response.status_code == status.HTTP_200_OK:
-            existing = True
-
-        attempts = 0
-
-        while attempts < cls.MAX_ETAG_ATTEMPTS:
-            attempts += 1
-
-            new_url = cls._get_request_for_build_registry(
-                registry_id, registry_alias, domain, is_secure
-            )
-            # now we create or modify the config for the URL
-            if existing:
-                etag = existing_response.headers.get("etag")
-                response = requests.patch(
-                    cls.get_uri_for_build_registry(registry_alias),
-                    headers={"content-type": "application/json", "If-Match": etag},
-                    json=new_url,
-                    timeout=5,
-                )
-            else:
-                response = requests.get(
-                    f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes",
-                    timeout=5,
-                )
-                etag = response.headers.get("etag")
-
-                routes: list[dict[str, dict]] = [
-                    route for route in response.json() if route["@id"] != registry_alias
-                ]
-
-                routes.append(new_url)
-                routes = cls._sort_routes(routes)  # type: ignore
-
-                response = requests.patch(
-                    f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes",
-                    headers={"content-type": "application/json", "If-Match": etag},
-                    json=routes,
-                    timeout=5,
-                )
-            if response.status_code == status.HTTP_412_PRECONDITION_FAILED:
-                continue
-            return True
-
-        raise ZaneProxyEtagError(
-            f"Failed inserting the url `{domain}` in the proxy because `Etag` precondition failed"
-        )
-
-    @classmethod
-    def remove_build_registry_url(cls, registry_alias: str):
-        requests.delete(
-            cls.get_uri_for_build_registry(registry_alias),
-            timeout=5,
-        )
-
-    @classmethod
-    def _get_id_for_compose_stack_service_url(
-        cls,
-        stack_id: str,
-        service_name: str,
-        url: ComposeStackUrlRouteDto,
-    ):
-        normalized_path = strip_slash_if_exists(
-            url.base_path, strip_end=True, strip_start=True
-        ).replace("/", "-")
-
-        if len(normalized_path) == 0:
-            normalized_path = "*"
-        return f"{stack_id}-{service_name}-{url.domain}-{normalized_path}"
-
-    @classmethod
-    def get_uri_for_compose_stack_service(
-        cls,
-        stack_id: str,
-        service_name: str,
-        url: ComposeStackUrlRouteDto,
-    ):
-        return f"{settings.CADDY_PROXY_ADMIN_HOST}/id/{cls._get_id_for_compose_stack_service_url(stack_id, service_name, url)}"
-
-    @staticmethod
-    async def _delete_route(route_id: str):
-        requests.delete(
-            f"{settings.CADDY_PROXY_ADMIN_HOST}/id/{route_id}",
-            timeout=5,
-        )
-
-    @classmethod
-    async def delete_all_stack_urls(
-        cls,
-        stack_id: str,
-    ) -> List[ProxyURLRoute]:
-        response = requests.get(
-            f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes", timeout=5
-        )
-        await asyncio.gather(
-            *[
-                cls._delete_route(route["@id"])
-                for route in response.json()
-                if route["@id"].startswith(stack_id)
-            ]
-        )
-        return [
-            ProxyURLRoute(
-                domain=route["match"][0]["host"][0],
-                base_path=route["match"][0]["path"][0],
-            )
-            for route in response.json()
-            if route["@id"].startswith(stack_id)
-        ]
-
-    @staticmethod
-    def _normalize_base_path(base_path: str):
-        if base_path == "/":
-            return "/*"
-        return f"{strip_slash_if_exists(base_path, strip_end=True, strip_start=False)}*"
-
-    @classmethod
-    async def cleanup_old_compose_stack_service_urls(
-        cls,
-        stack_id: str,
-        all_urls: List[ComposeStackUrlRouteDto],
-    ):
-        response = requests.get(
-            f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes", timeout=5
-        )
-        service_url_routes = [
-            (
-                url.domain,
-                cls._normalize_base_path(url.base_path),
-            )
-            for url in all_urls
-        ]
-
-        route_delete_requests: List[Coroutine[Any, Any, None]] = []
-        for route in response.json():
-            if route["@id"].startswith(stack_id):
-                route_pair = (
-                    route["match"][0]["host"][0],
-                    route["match"][0]["path"][0],
-                )
-                if route_pair not in service_url_routes:
-                    route_delete_requests.append(cls._delete_route(route["@id"]))
-
-        await asyncio.gather(*route_delete_requests)
-
-    @classmethod
-    def _get_request_for_compose_stack_service_url(
-        cls,
-        stack_id: str,
-        stack_hash_prefix: str,
-        service_name: str,
-        url: ComposeStackUrlRouteDto,
-    ):
-        proxy_handlers = [
-            {
-                "handler": "log_append",
-                "key": "zane_service_type",
-                "value": "compose_stack_service",
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_service_name",
-                "value": service_name,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_stack_id",
-                "value": stack_id,
-            },
-            {
-                "handler": "log_append",
-                "key": "zane_request_id",
-                "value": "{http.request.uuid}",
-            },
-            {
-                "handler": "headers",
-                "response": {
-                    "add": {
-                        "x-zane-request-id": ["{http.request.uuid}"],
-                    },
-                },
-                "request": {
-                    "add": {
-                        "x-request-id": ["{http.request.uuid}"],
-                    },
-                },
-            },
-            {
-                "handler": "encode",
-                "encodings": {"gzip": {}},
-                "prefer": ["gzip"],
-            },
-        ]
-
-        if url.strip_prefix:
-            proxy_handlers.append(
-                {
-                    "handler": "rewrite",
-                    "strip_path_prefix": strip_slash_if_exists(
-                        url.base_path,
-                        strip_end=True,
-                        strip_start=False,
-                    ),
-                }
-            )
-
-        # Add final reverse proxy mapping
-        proxy_handlers.append(
-            {
-                "handler": "reverse_proxy",
-                "flush_interval": -1,
-                "load_balancing": {
-                    "retries": 2,
-                },
-                "upstreams": [
-                    {
-                        "dial": f"{stack_hash_prefix}_{service_name}.{settings.ZANE_INTERNAL_DOMAIN}:{url.port}"
-                    },
-                ],
-            }
-        )
-
-        return {
-            "@id": cls._get_id_for_compose_stack_service_url(
-                stack_id,
-                service_name,
-                url,
-            ),
-            "match": [
-                {
-                    "path": [cls._normalize_base_path(url.base_path)],
-                    "host": [url.domain],
-                }
-            ],
-            "handle": [
-                {
-                    "handler": "subroute",
-                    "routes": [{"handle": proxy_handlers}],
-                }
-            ],
-        }
-
-    @classmethod
-    def upsert_compose_stack_service_url(
-        cls,
-        stack_id: str,
-        stack_hash_prefix: str,
-        service_name: str,
-        url: ComposeStackUrlRouteDto,
-    ) -> bool:
-        attempts = 0
-
-        while attempts < cls.MAX_ETAG_ATTEMPTS:
-            attempts += 1
-            # now we create or modify the config for the URL
-            response = requests.get(
-                f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes", timeout=5
-            )
-            etag = response.headers.get("etag")
-
-            routes: list[dict[str, dict]] = [
-                route
-                for route in response.json()
-                if route["@id"]
-                != cls._get_id_for_compose_stack_service_url(
-                    stack_id=stack_id,
-                    service_name=service_name,
-                    url=url,
-                )
-            ]
-            new_url = cls._get_request_for_compose_stack_service_url(
-                stack_id=stack_id,
-                service_name=service_name,
-                stack_hash_prefix=stack_hash_prefix,
-                url=url,
-            )
-            routes.append(new_url)
-            routes = cls._sort_routes(routes)  # type: ignore
-
-            response = requests.patch(
-                f"{settings.CADDY_PROXY_ADMIN_HOST}/id/zane-url-root/routes",
-                headers={"content-type": "application/json", "If-Match": etag},
-                json=routes,
-                timeout=5,
-            )
-            if response.status_code == status.HTTP_412_PRECONDITION_FAILED:
-                continue
-            return True
-
-        raise ZaneProxyEtagError(
-            f"Failed inserting the url {url} in the proxy because `Etag` precondition failed"
-        )
-
-
 class GitDeploymentStep(Enum):
     INITIALIZED = auto()
     CLONING_REPOSITORY = auto()
@@ -1144,7 +297,6 @@ class GitDeploymentStep(Enum):
     CONFIGS_CREATED = auto()
     PREVIOUS_DEPLOYMENT_SCALED_DOWN = auto()
     SWARM_SERVICE_CREATED = auto()
-    DEPLOYMENT_EXPOSED_TO_HTTP = auto()
     SERVICE_EXPOSED_TO_HTTP = auto()
     FINISHED = auto()
 
@@ -1175,7 +327,6 @@ class DockerDeploymentStep(Enum):
     CONFIGS_CREATED = auto()
     PREVIOUS_DEPLOYMENT_SCALED_DOWN = auto()
     SWARM_SERVICE_CREATED = auto()
-    DEPLOYMENT_EXPOSED_TO_HTTP = auto()
     SERVICE_EXPOSED_TO_HTTP = auto()
     FINISHED = auto()
 
@@ -1250,6 +401,7 @@ def get_build_environment_variables_for_deployment(
                     deployment={
                         "slot": deployment.slot,
                         "hash": deployment.hash,
+                        "commit_sha": deployment.commit_sha,
                     }
                 ),
             )
@@ -1322,6 +474,7 @@ NON_SECRET_BUILD_ARGS = {
     "cache-key",
     "FORCE_COLOR",
     "ZANE",
+    "GIT_COMMIT_SHA",
 }
 # Prefixes for env keys that should not be obfuscated
 NON_SECRET_ENV_PREFIXES = ("ZANE_", "NIXPACKS_", "RAILPACK_")
@@ -1392,7 +545,9 @@ def obfuscate_env_in_shell_command(cmd: str, build_envs: dict[str, str]) -> str:
 
 
 async def get_compose_stack_swarm_service_status(
-    service: DockerService, stack: ComposeStackSnapshot
+    service: DockerService,
+    stack: ComposeStackSnapshot,
+    all_configs: Optional[Dict[str, DockerConfig]] = None,
 ) -> Dict[str, Any]:
     service_mode = service.attrs["Spec"]["Mode"]
     # Mode is a dict in the format:
@@ -1429,6 +584,9 @@ async def get_compose_stack_swarm_service_status(
         # default is replicated
         mode_type = "replicated"
 
+    # Determine status based on mode
+    is_job = mode_type in ["replicated-job", "global-job"]
+
     # Get counts from ServiceStatus
     running_replicas = service_status["RunningTasks"]
     desired_replicas = service_status["DesiredTasks"]
@@ -1436,9 +594,6 @@ async def get_compose_stack_swarm_service_status(
 
     # Get all tasks for the tasks list
     tasks = [DockerSwarmTask.from_dict(task) for task in service.tasks()]
-
-    # Determine status based on mode
-    is_job = mode_type in ["replicated-job", "global-job"]
 
     if is_job:
         # For jobs, healthy means completed >= desired
@@ -1461,13 +616,17 @@ async def get_compose_stack_swarm_service_status(
                 DockerSwarmTaskState.ORPHANED,
             ]
 
-            has_failed_tasks = any(t.state in unhealthy_states for t in tasks)
+            expected_tasks = [
+                t for t in tasks if t.DesiredState == DockerSwarmTaskState.RUNNING
+            ]
+
+            has_failed_tasks = any(t.state in unhealthy_states for t in expected_tasks)
 
             # Check for shutdown tasks with non-zero exit codes
             has_errored_shutdown = any(
                 t.state == DockerSwarmTaskState.SHUTDOWN
                 and (t.exit_code is not None and t.exit_code != 0)
-                for t in tasks
+                for t in expected_tasks
             )
 
             if has_failed_tasks or has_errored_shutdown:
@@ -1481,30 +640,251 @@ async def get_compose_stack_swarm_service_status(
         .removeprefix(f"{stack.hash_prefix}_")
     )
 
+    container_spec = service.attrs["Spec"]["TaskTemplate"]["ContainerSpec"]
+
     # Get image from service spec
-    image = service.attrs["Spec"]["TaskTemplate"]["ContainerSpec"]["Image"]
-    # Remove the digest suffix if present (e.g., "nginx:latest@sha256:...")
-    if "@" in image:
-        image = image.split("@")[0]
+    image = container_spec["Image"]
+
+    environment: list[dict[str, str]] = []
+
+    for env in container_spec.get("Env", []):
+        key, value = env.split(
+            "=", 1
+        )  # env is in the format `KEY=VALUE`, split will return an array of [KEY, VALUE]
+        environment.append({"key": key, "value": value})
+
+    volumes: list[dict[str, str]] = []
+
+    for vol in container_spec.get("Mounts", []):
+        volumes.append(
+            {
+                "target": vol["Target"],
+                "source": vol["Source"],
+                "read_only": vol.get("ReadOnly", False),
+                "type": vol.get("type", "volume"),
+            }
+        )
+
+    configs: list[dict[str, str]] = []
+    cfg_dict = all_configs or {}
+
+    for cfg in container_spec.get("Configs", []):
+        existing_cfg = cfg_dict.get(cfg["ConfigID"])
+        if existing_cfg:
+            content: str = existing_cfg.attrs["Spec"]["Data"]
+            configs.append(
+                {
+                    "source": cfg["ConfigName"],
+                    "target": cfg["File"]["Name"],
+                    "content": base64.b64decode(content).decode("utf-8"),
+                }
+            )
+
+    ports: list[dict[str, str | bool]] = []
+
+    for port in service.attrs.get("Endpoint", {"Ports": []}).get("Ports", []):
+        ports.append(
+            {
+                "protocol": port["Protocol"],
+                "published": port["PublishedPort"],
+                "target": port["TargetPort"],
+            }
+        )
+
+    healthcheck = None
+    health = container_spec.get("Healthcheck")
+    if health:
+        cmd: list[str] = health["Test"]
+        if cmd != ["NONE"]:  # healthcheck disabled
+            cmd.pop(0)
+            healthcheck = {
+                "command": " ".join(cmd),
+            }
+            if health.get("Interval"):
+                healthcheck["interval_sec"] = (
+                    health["Interval"] // 1e9
+                )  # the time is in nanoseconds
+            if health.get("Timeout"):
+                healthcheck["timeout_sec"] = (
+                    health["Timeout"] // 1e9
+                )  # the time is in nanoseconds
+            if health.get("Retries"):
+                healthcheck["retries"] = health["Retries"]
+            if health.get("StartPeriod"):
+                healthcheck["start_period"] = health["StartPeriod"] // 1e9
+            if health.get("StartInterval"):
+                healthcheck["start_interval"] = health["StartInterval"] // 1e9
 
     return {
         "name": service_name,
         "image": image,
         "mode": mode_type,
         "status": status,
+        "network_alias": f"{stack.network_alias_prefix}-{service_name}",
+        "global_alias": f"{stack.hash_prefix}_{service_name}",
         "desired_replicas": desired_replicas,
         "running_replicas": running_replicas,
         "updated_at": timezone.now().isoformat(),
+        "id": service.id,
+        "environment": environment,
+        "volumes": volumes,
+        "ports": ports,
+        "configs": configs,
+        "healthcheck": healthcheck,
         "tasks": [
             {
+                "id": task.ID,
+                "container_id": task.container_id,
+                "version": task.Version.Index,
+                "slot": task.Slot,
+                "name": f"{service.name}.{task.Slot}.{task.ID}",
+                "desired_status": task.DesiredState.value,
                 "status": task.state.value,
                 "image": task.image,
                 "message": task.message,
                 "exit_code": task.exit_code,
+                "created_at": task.CreatedAt,
+                "updated_at": task.UpdatedAt,
             }
             for task in tasks
         ],
     }
+
+
+async def collect_swarm_service_metrics(
+    service: DockerService,
+    docker_client: docker.DockerClient,
+    single_replica: bool = False,
+):
+    service_mode = service.attrs["Spec"]["Mode"]
+
+    # Determine mode type
+    if "Global" in service_mode:
+        mode_type = "global"
+    elif "ReplicatedJob" in service_mode:
+        mode_type = "replicated-job"
+    elif "GlobalJob" in service_mode:
+        mode_type = "global-job"
+    else:
+        # default is replicated
+        mode_type = "replicated"
+
+    # ignore collecting metrics from jobs as they are not long running
+    if mode_type.endswith("job"):
+        return None
+
+    task_list = [
+        DockerSwarmTask.from_dict(task)
+        for task in service.tasks(filters={"desired-state": "running"})
+    ]
+    if len(task_list) == 0:
+        return None
+    else:
+        if single_replica:
+            most_recent_swarm_task = max(
+                task_list,
+                key=lambda task: task.Version.Index,
+            )
+
+            if most_recent_swarm_task.container_id is not None:
+                return await collect_container_metrics(
+                    most_recent_swarm_task.container_id, docker_client
+                )
+        else:
+            metrics = await asyncio.gather(
+                *[
+                    collect_container_metrics(task.container_id, docker_client)
+                    for task in task_list
+                    if task.container_id is not None
+                ]
+            )
+            filtered_metrics = [metric for metric in metrics if metric is not None]
+
+            if len(filtered_metrics) == 0:
+                return None
+
+            total_metrics = ContainerMetrics(
+                cpu_percent=0,
+                memory_bytes=0,
+                net_tx_bytes=0,
+                net_rx_bytes=0,
+                disk_read_bytes=0,
+                disk_writes_bytes=0,
+            )
+
+            for metric in filtered_metrics:
+                total_metrics.cpu_percent += metric.cpu_percent
+                total_metrics.memory_bytes += metric.memory_bytes
+                total_metrics.net_tx_bytes += metric.net_tx_bytes
+                total_metrics.net_rx_bytes += metric.net_rx_bytes
+                total_metrics.disk_read_bytes += metric.disk_read_bytes
+                total_metrics.disk_writes_bytes += metric.disk_writes_bytes
+
+            return total_metrics
+
+
+async def collect_container_metrics(
+    container_id: str, docker_client: docker.DockerClient
+):
+    try:
+        container = docker_client.containers.get(container_id)
+    except docker.errors.NotFound:
+        return None  # this container may have been deleted already
+    else:
+        if container.status != "running":
+            return  # we cannot get the stats of a dead container
+
+        stats = container.stats(stream=False)  # type: Any
+
+        # Calculate CPU usage percentage
+        cpu_delta = (
+            stats["cpu_stats"]["cpu_usage"]["total_usage"]
+            - stats["precpu_stats"]["cpu_usage"]["total_usage"]
+        )
+        system_delta = (
+            stats["cpu_stats"]["system_cpu_usage"]
+            - stats["precpu_stats"]["system_cpu_usage"]
+        )
+        cpu_percent: float = (
+            (cpu_delta / system_delta) * stats["cpu_stats"]["online_cpus"] * 100
+        )
+
+        # Memory usage
+        memory_usage: int = stats["memory_stats"]["usage"]
+
+        # Network usage
+        rx_bytes: int = sum(
+            network["rx_bytes"] for network in stats["networks"].values()
+        )
+        tx_bytes: int = sum(
+            network["tx_bytes"] for network in stats["networks"].values()
+        )
+
+        # Disk I/O usage
+        read_bytes: int = sum(
+            io.get("value", 0)
+            for io in (
+                stats.get("blkio_stats", {}).get("io_service_bytes_recursive", []) or []
+            )
+            if io.get("op") == "read"
+        )
+
+        write_bytes: int = sum(
+            io["value"]
+            for io in (
+                stats.get("blkio_stats", {}).get("io_service_bytes_recursive", []) or []
+            )
+            if io["op"] == "write"
+        )
+
+        return ContainerMetrics(
+            cpu_percent=cpu_percent,
+            memory_bytes=memory_usage,
+            disk_read_bytes=read_bytes,
+            disk_writes_bytes=write_bytes,
+            net_rx_bytes=rx_bytes,
+            net_tx_bytes=tx_bytes,
+        )
 
 
 async def send_regular_heartbeat(name: str):

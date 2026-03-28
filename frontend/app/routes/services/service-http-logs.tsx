@@ -14,7 +14,7 @@ import {
 import * as React from "react";
 import type { DateRange } from "react-day-picker";
 import { flushSync } from "react-dom";
-import { useParams, useSearchParams } from "react-router";
+import { useLoaderData, useParams, useSearchParams } from "react-router";
 import { useDebouncedCallback } from "use-debounce";
 import { DateRangeWithShortcuts } from "~/components/date-range-with-shortcuts";
 import { HttpLogRequestDetails } from "~/components/http-log-request-details";
@@ -42,10 +42,10 @@ import {
   httpLogSearchSchema,
   serviceQueries
 } from "~/lib/queries";
-import type { Writeable } from "~/lib/types";
-import { cn, formatLogTime } from "~/lib/utils";
+import type { SortDirection, Writeable } from "~/lib/types";
+import { cn, formatLogTime, notFound } from "~/lib/utils";
 import { queryClient } from "~/root";
-import { formatTimeValue } from "~/utils";
+import { formatDuration } from "~/utils";
 import type { Route } from "./+types/service-http-logs";
 
 export async function clientLoader({
@@ -56,6 +56,18 @@ export async function clientLoader({
     envSlug: env_slug
   }
 }: Route.ClientLoaderArgs) {
+  const service = await queryClient.ensureQueryData(
+    serviceQueries.single({
+      project_slug,
+      service_slug,
+      env_slug
+    })
+  );
+
+  if (!service) {
+    throw notFound();
+  }
+
   const searchParams = new URL(request.url).searchParams;
   const search = httpLogSearchSchema.parse(searchParams);
   const filters = {
@@ -77,6 +89,7 @@ export async function clientLoader({
         project_slug,
         service_slug,
         env_slug,
+        service_id: service.id,
         filters,
         queryClient
       })
@@ -87,14 +100,14 @@ export async function clientLoader({
             project_slug,
             request_uuid: search.request_id,
             service_slug,
-            env_slug
+            env_slug,
+            service_id: service.id
           })
         )
       : undefined
   ] as const);
-  return { httpLogs, httpLog };
+  return { httpLogs, httpLog, service };
 }
-type SortDirection = "ascending" | "descending" | "indeterminate";
 
 export default function ServiceHttpLogsPage({
   loaderData,
@@ -102,6 +115,11 @@ export default function ServiceHttpLogsPage({
     projectSlug: project_slug,
     serviceSlug: service_slug,
     envSlug: env_slug
+  },
+  matches: {
+    2: {
+      loaderData: { service }
+    }
   }
 }: Route.ComponentProps) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -127,6 +145,7 @@ export default function ServiceHttpLogsPage({
       project_slug,
       service_slug,
       env_slug,
+      service_id: service.id,
       filters,
       queryClient,
       autoRefetchEnabled: isAutoRefetchEnabled
@@ -145,7 +164,7 @@ export default function ServiceHttpLogsPage({
       nextDirection = "indeterminate";
     }
 
-    let newSortBy = (sort_by ?? []).filter(
+    const newSortBy = (sort_by ?? []).filter(
       (sort_field) => sort_field !== field && sort_field !== `-${field}`
     );
     switch (nextDirection) {
@@ -275,7 +294,7 @@ export default function ServiceHttpLogsPage({
   });
 
   const items = virtualizer.getVirtualItems();
-  const [before, after] =
+  const [virtualizerPaddingBefore, virtualizerPaddingAfter] =
     items.length > 0
       ? [
           notUndefined(items[0]).start - virtualizer.options.scrollMargin,
@@ -404,9 +423,12 @@ export default function ServiceHttpLogsPage({
                   </div>
                 </td>
               </tr>
-              {before > 0 && (
+              {virtualizerPaddingBefore > 0 && (
                 <tr>
-                  <td colSpan={7} style={{ height: before }} />
+                  <td
+                    colSpan={7}
+                    style={{ height: virtualizerPaddingBefore }}
+                  />
                 </tr>
               )}
 
@@ -417,11 +439,11 @@ export default function ServiceHttpLogsPage({
                     className="border-border cursor-pointer"
                     key={log.id}
                     data-state={
-                      log.request_id === search.request_id ? "selected" : null
+                      log.request_uuid === search.request_id ? "selected" : null
                     }
                     onClick={() => {
-                      if (log.request_id) {
-                        searchParams.set("request_id", log.request_id);
+                      if (log.request_uuid) {
+                        searchParams.set("request_id", log.request_uuid);
                         setSearchParams(searchParams);
                       }
                     }}
@@ -432,9 +454,9 @@ export default function ServiceHttpLogsPage({
                   </TableRow>
                 );
               })}
-              {after > 0 && (
+              {virtualizerPaddingAfter > 0 && (
                 <tr>
-                  <td colSpan={7} style={{ height: after }} />
+                  <td colSpan={7} style={{ height: virtualizerPaddingAfter }} />
                 </tr>
               )}
 
@@ -474,7 +496,7 @@ type LogTableRowProps = {
 
 function LogTableRowContent({ log }: LogTableRowProps) {
   const logTime = formatLogTime(log.time);
-  let { value: duration, unit } = formatTimeValue(
+  const { value: duration, unit } = formatDuration(
     log.request_duration_ns / 1_000_000 /*from ns to ms*/
   );
 
@@ -913,11 +935,14 @@ function HostFilter({ hosts }: HostFilterProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [inputValue, setInputValue] = React.useState("");
 
+  const loaderData = useLoaderData<typeof clientLoader>();
+
   const { data: hostList = [] } = useQuery(
     serviceQueries.filterHttpLogFields({
       project_slug,
       service_slug,
       env_slug,
+      service_id: loaderData.service.id,
       field: "request_host",
       value: inputValue
     })
@@ -956,12 +981,14 @@ function PathFilter({ paths }: PathFilterProps) {
   } = useParams() as Required<Route.LoaderArgs["params"]>;
   const [searchParams, setSearchParams] = useSearchParams();
   const [inputValue, setInputValue] = React.useState("");
+  const loaderData = useLoaderData<typeof clientLoader>();
 
   const { data: hostList = [] } = useQuery(
     serviceQueries.filterHttpLogFields({
       project_slug,
       service_slug,
       env_slug,
+      service_id: loaderData.service.id,
       field: "request_path",
       value: inputValue
     })
@@ -1001,11 +1028,14 @@ function ClientIpFilter({ clientIps }: ClientIpFilterProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [inputValue, setInputValue] = React.useState("");
 
+  const loaderData = useLoaderData<typeof clientLoader>();
+
   const { data: ipList = [] } = useQuery(
     serviceQueries.filterHttpLogFields({
       project_slug,
       service_slug,
       env_slug,
+      service_id: loaderData.service.id,
       field: "request_ip",
       value: inputValue
     })
@@ -1042,12 +1072,14 @@ function UserAgentFilter({ userAgents }: UserAgentFilterProps) {
   } = useParams() as Required<Route.LoaderArgs["params"]>;
   const [searchParams, setSearchParams] = useSearchParams();
   const [inputValue, setInputValue] = React.useState("");
+  const loaderData = useLoaderData<typeof clientLoader>();
 
   const { data: uaList = [] } = useQuery(
     serviceQueries.filterHttpLogFields({
       project_slug,
       service_slug,
       env_slug,
+      service_id: loaderData.service.id,
       field: "request_user_agent",
       value: inputValue
     })

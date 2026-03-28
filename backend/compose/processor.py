@@ -18,8 +18,10 @@ from django.conf import settings
 from .models import ComposeStack, ComposeStackChange
 import secrets
 from zane_api.utils import (
+    domain_to_wildcard,
     generate_random_chars,
     find_item_in_sequence,
+    replace_placeholders,
 )
 from faker import Faker
 import tempfile
@@ -28,14 +30,17 @@ import os
 from expandvars import expand
 from rest_framework import serializers
 from zane_api.serializers import URLDomainField, URLPathField
-from zane_api.models import URL, DeploymentURL
+from zane_api.models import URL
 from container_registry.models import BuildRegistry
 from django.db.models import Q
 import uuid
+from django.db import connection
+import base64
+from zane_api.serializers import EnvVarDictField
 
 
 class ComposeStackSpecSerializer(serializers.Serializer):
-    x_zane_env = serializers.DictField(
+    x_zane_env = EnvVarDictField(
         child=serializers.CharField(allow_blank=True), required=False
     )
 
@@ -96,21 +101,7 @@ class ComposeStackURLRouteSerializer(serializers.Serializer):
                 }
             )
 
-        existing_deployment_urls = DeploymentURL.objects.filter(
-            Q(domain=attrs["domain"].lower())
-        ).distinct()
-        if len(existing_deployment_urls) > 0:
-            raise serializers.ValidationError(
-                {
-                    "domain": [
-                        f"URL with domain `{attrs['domain']}` is already assigned to another deployment."
-                    ]
-                }
-            )
-
-        domain = attrs["domain"]
-        domain_parts = domain.split(".")
-        domain_as_wildcard = domain.replace(domain_parts[0], "*", 1)
+        domain_as_wildcard = domain_to_wildcard(attrs["domain"])
 
         existing_parent_domain = URL.objects.filter(
             Q(domain=domain_as_wildcard.lower())
@@ -152,7 +143,6 @@ class ComposeStackURLRouteSerializer(serializers.Serializer):
         exclude_stack_id: str | None = None,
     ):
         """Check if the URL conflicts with any deployed compose stack URLs using raw SQL."""
-        from django.db import connection
 
         # Build the exclusion clause
         exclude_clause = ""
@@ -165,7 +155,7 @@ class ComposeStackURLRouteSerializer(serializers.Serializer):
         # The urls field structure is: {service_name: [{domain, base_path, ...}, ...]}
         query = f"""
             SELECT cs.id
-            FROM compose_composestack cs,
+            FROM {ComposeStack._meta.db_table} cs,
                  jsonb_each(cs.urls) AS services(service_name, routes),
                  jsonb_array_elements(services.routes) AS route
             WHERE cs.urls IS NOT NULL
@@ -236,6 +226,9 @@ class ComposeSpecProcessor:
     PASSWORD_REGEX = (
         r"generate_password[ \t]*\|[ \t]*(\d+)"  # format: generate_password | <number>
     )
+    BASE64_REGEX = (
+        r"generate_base64[ \t]*\|[ \t]*(\d+)"  # format: generate_base64 | <number>
+    )
     NETWORK_ALIAS_REGEX = r"network_alias[ \t]*\|[ \t]*(\".*\"|\'.*\')"  # format: network_alias | 'service_name'
     GLOBAL_ALIAS_REGEX = r"global_alias[ \t]*\|[ \t]*(\".*\"|\'.*\')"  # format: global_alias | 'service_name'
 
@@ -246,6 +239,7 @@ class ComposeSpecProcessor:
         r"generate_uuid",
         r"generate_email",
         PASSWORD_REGEX,
+        BASE64_REGEX,
         NETWORK_ALIAS_REGEX,
         GLOBAL_ALIAS_REGEX,
     ]
@@ -299,7 +293,7 @@ class ComposeSpecProcessor:
             # If docker rejects inline config content, retry with file references
             # to ensure there are no other validation errors
             if error.endswith("Additional property content is not allowed"):
-                user_spec_dict = cls._parse_user_yaml(user_content)
+                user_spec_dict = cls.parse_user_yaml(user_content)
 
                 # Replace config content with temporary file references
                 for config in user_spec_dict.get("configs", {}).values():
@@ -312,12 +306,14 @@ class ComposeSpecProcessor:
                 retry_error = cls._run_docker_validation(retry_content)
 
                 if retry_error:
-                    raise ValidationError(f"Invalid compose file: {retry_error}")
+                    last_error = retry_error.splitlines()[-1]
+                    raise ValidationError(f"Invalid compose file: {last_error}")
             else:
-                raise ValidationError(f"Invalid compose file: {error}")
+                last_error = error.splitlines()[-1]
+                raise ValidationError(f"Invalid compose file: {last_error}")
 
         # Parse and validate YAML structure
-        user_spec_dict = cls._parse_user_yaml(user_content)
+        user_spec_dict = cls.parse_user_yaml(user_content)
 
         if not user_spec_dict.get("services"):
             raise ValidationError(
@@ -348,6 +344,20 @@ class ComposeSpecProcessor:
                             f"Invalid compose file: service '{name}' has a bind volume with relative source path '{volume.source}'. Only absolute paths are supported for bind mounts."
                         )
 
+            config_target_sources: dict[str, list[str]] = {}
+            for config in service_spec.configs:
+                config_source_list = config_target_sources.get(config.target, [])
+                config_source_list.append(config.source)
+
+                config_target_sources[config.target] = config_source_list
+                if len(config_source_list) > 1:
+                    sources = " and ".join(
+                        [f"'{source}'" for source in config_source_list]
+                    )
+                    raise ValidationError(
+                        f"Invalid compose file: service '{name}' has a two configs {sources} pointing to the same target '{config.target}'."
+                    )
+
         # Validate configs use content instead of file
         for name, config in user_spec_dict.get("configs", {}).items():
             if config.get("file") is not None:
@@ -355,8 +365,14 @@ class ComposeSpecProcessor:
                     f"Invalid compose file: configs.{name} Additional property file is not allowed, please use config.content instead"
                 )
 
+        # check that no error is raised when expanding variables
+        try:
+            expand(user_content, environ={}, surrounded_vars_only=True)
+        except Exception as e:
+            raise ValidationError(f"Invalid compose file: {e}")
+
     @classmethod
-    def _parse_user_yaml(cls, content: str) -> Dict[str, Dict[str, Any]]:
+    def parse_user_yaml(cls, content: str) -> Dict[str, Dict[str, Any]]:
         """
         Parse user YAML to dict.
 
@@ -374,7 +390,7 @@ class ComposeSpecProcessor:
             raise ValidationError(f"Invalid YAML syntax: {str(e)}")
 
     @classmethod
-    def _extract_template_expression(cls, env_value: str) -> str | None:
+    def extract_template_expression(cls, env_value: str) -> str | None:
         """
         Extract template function name from environment variable value.
 
@@ -428,16 +444,31 @@ class ComposeSpecProcessor:
                 matched = cast(re.Match[str], regex.match(template_func))
                 count = int(matched.group(1))
 
-                if count >= 8 and count % 2 == 0:
-                    return secrets.token_hex(int(count / 2))
-
                 issues = []
                 if count < 8:
                     issues.append(f"must be at least 8 characters (got {count})")
                 if count % 2 != 0:
                     issues.append(f"must be an even number (got {count})")
 
-                raise ValidationError(f"Invalid `{template_func}`: {', '.join(issues)}")
+                if issues:
+                    raise ValidationError(
+                        f"Invalid `{template_func}`: {', '.join(issues)}"
+                    )
+
+                return secrets.token_hex(int(count / 2))
+
+            case template_func if template_func.startswith("generate_base64"):
+                # Cryptographically secure base64 token (equivalent to `openssl rand -base64 N`)
+                regex = re.compile(cls.BASE64_REGEX)
+                matched = cast(re.Match[str], regex.match(template_func))
+                count = int(matched.group(1))
+
+                if count < 8:
+                    raise ValidationError(
+                        f"Invalid `{template_func}`: must be at least 8 bytes (got {count})"
+                    )
+
+                return base64.b64encode(secrets.token_bytes(count)).decode()
 
             case template_func if template_func.startswith("network_alias"):
                 regex = re.compile(cls.NETWORK_ALIAS_REGEX)
@@ -455,6 +486,69 @@ class ComposeSpecProcessor:
                 raise ValidationError(
                     f"Unsupported template function `{template_func}`"
                 )
+
+    @classmethod
+    def replace_stack_urls_in_compose(cls, user_content: str) -> str:
+        """
+        Replace all fixed stack urls with generated ones to prevent conflicts
+        with existing urls.
+        """
+        compose_dict = cls.parse_user_yaml(user_content)
+
+        spec = ComposeStackSpec.from_dict(compose_dict)
+
+        environ = spec.to_dict()["x-zane-env"]
+
+        index = 0
+        for name, service in spec.services.items():
+            if not service.deploy or not service.deploy.get("labels"):
+                continue
+
+            labels: Dict[str, str] = service.deploy["labels"]
+
+            for label in labels:
+                domain_label_regex = re.compile(r"^zane\.http\.routes\.(\d+)\.domain$")
+
+                matches = domain_label_regex.match(label)
+                if matches is None:
+                    continue
+
+                route_index = matches.group(1)
+                domain_label_key = f"zane.http.routes.{route_index}.domain"
+
+                domain = str(labels[domain_label_key])
+
+                domain_value = expand(
+                    domain,
+                    environ=environ,
+                    surrounded_vars_only=True,
+                )
+
+                template_func = cls.extract_template_expression(domain_value)
+
+                if template_func != "generate_domain":
+                    # create new variable in `x-zane-env`
+                    variable_name = f"__zane_override_{index}_routes_{route_index}"
+                    environ[variable_name] = "{{ generate_domain }}"
+                    labels[domain_label_key] = f"${{{variable_name}}}"
+                    index += 1
+                continue
+
+            # update labels
+            compose_dict["services"][name]["deploy"]["labels"] = labels
+            if environ:
+                compose_dict["x-zane-env"] = environ
+
+        # we need to reorder the compose file properties
+        compose = {}
+        if compose_dict.get("version"):
+            compose["version"] = compose_dict.pop("version")
+        if compose_dict.get("x-zane-env"):
+            compose["x-zane-env"] = compose_dict.pop("x-zane-env")
+        compose["services"] = compose_dict.pop("services")
+        compose.update(compose_dict)
+
+        return yaml.safe_dump(compose, sort_keys=False)
 
     @classmethod
     def process_compose_spec(
@@ -477,7 +571,7 @@ class ComposeSpecProcessor:
         """
 
         # Parse YAML
-        spec_dict = ComposeSpecProcessor._parse_user_yaml(user_content)
+        spec_dict = ComposeSpecProcessor.parse_user_yaml(user_content)
 
         # Convert to dataclass
         spec = ComposeStackSpec.from_dict(spec_dict)
@@ -489,15 +583,9 @@ class ComposeSpecProcessor:
         )
 
         # Inject zane network & environment network to networks section
-        if env_network_name not in spec.networks:
-            spec.networks[env_network_name] = {
-                "external": True,
-            }
-
-        if "zane" not in spec.networks:
-            spec.networks["zane"] = {
-                "external": True,
-            }
+        spec.networks.update(
+            {env_network_name: {"external": True}, "zane": {"external": True}}
+        )
 
         # Rename services to prevent DNS name collisions in the shared `zane` network
         # Since all stacks share the `zane` network, service names like `app` would collide
@@ -531,7 +619,7 @@ class ComposeSpecProcessor:
 
         # generate temlate values
         for key, env in spec.envs.items():
-            template_func = cls._extract_template_expression(env.value)
+            template_func = cls.extract_template_expression(env.value)
 
             if key in override_dict:
                 env.value = override_dict[key]  # replace values with existing overrides
@@ -540,13 +628,29 @@ class ComposeSpecProcessor:
                     template_func=template_func,
                     stack=stack,
                 )
-                env.is_newly_generated = True
+                env.is_exposed = True
+            elif key.startswith("__"):
+                env.is_exposed = True
 
             override_dict[key] = str(env.value)
 
+        shared_variables: dict[str, str] = {}
+        for env in stack.environment.variables.all():
+            shared_variables[env.key] = env.value
+
         # expand all envs that are related to each-other
         for key, env in spec.envs.items():
-            env.value = str(expand(str(env.value), environ=override_dict))
+            env.value = str(
+                expand(
+                    str(env.value),
+                    environ=override_dict,
+                    surrounded_vars_only=True,
+                )
+            )
+            # expand shared variables
+            env.value = str(
+                replace_placeholders(env.value, replacements={"env": shared_variables})
+            )
 
         # Process each service
         for service_name, service in spec.services.items():
@@ -559,7 +663,10 @@ class ComposeSpecProcessor:
             # Add environment network with stable alias for cross-env communication
             # using the original service name and the stack alias prefix, for better UX
             service.networks[env_network_name] = {
-                "aliases": [f"{stack.network_alias_prefix}-{original_service_name}"]
+                "aliases": [
+                    f"{stack.network_alias_prefix}-{original_service_name}",
+                    f"{stack.network_alias_prefix}-{original_service_name}.{settings.ZANE_INTERNAL_DOMAIN}",
+                ]
             }
 
             if service.networks.get("default") is None:
@@ -571,7 +678,7 @@ class ComposeSpecProcessor:
 
             if original_service_name not in aliases:
                 aliases.append(original_service_name)
-            service.networks["default"].update({"aliases": aliases})  # type: ignore
+            service.networks["default"].update({"aliases": aliases})
 
             # Add logging configuration (for Fluentd log collection)
             service.logging = {
@@ -581,7 +688,7 @@ class ComposeSpecProcessor:
                     "tag": json.dumps(
                         {
                             "zane.stack": stack.id,
-                            "zane.service": service_name.removeprefix(
+                            "zane.stack.service": service_name.removeprefix(
                                 f"{stack.hash_prefix}_"
                             ),
                         }
@@ -595,21 +702,22 @@ class ComposeSpecProcessor:
             }
 
             # Inject safe update_config for rolling updates
+            # And restart_policy
             # only on non jobs
-            if (
-                service.deploy.get("mode", "replicated") in ["replicated", "global"]
-                and "update_config" not in service.deploy
-            ):
-                service.deploy["update_config"] = {
-                    "parallelism": 1,
-                    "delay": "5s",
-                    "order": "start-first",
-                    "failure_action": "rollback",
-                }
-
             # mode can be `replicated` | `global` or `replicated-job` | `global-job`
             if service.deploy.get("mode", "replicated") in ["replicated", "global"]:
-                # 5. Set restart policy to "any" (unless user explicitly specified one)
+                # Set update_config (unless user explicitly specified one)
+                service.deploy["update_config"] = service.deploy.get(
+                    "update_config",
+                    {
+                        "parallelism": 1,
+                        "delay": "5s",
+                        "order": "start-first",
+                        "failure_action": "rollback",
+                    },
+                )
+
+                # Set restart policy to "any" (unless user explicitly specified one)
                 service.deploy["restart_policy"] = service.deploy.get(
                     "restart_policy", {"condition": "any"}
                 )
@@ -618,9 +726,11 @@ class ComposeSpecProcessor:
             service.deploy["labels"] = service.deploy.get("labels", {})
             service.deploy["labels"].update(
                 {
+                    "zane-stack": stack.id,
                     "zane-managed": "true",
                     "zane-project": stack.project_id,
                     "zane-environment": stack.environment_id,
+                    "status": "active",  # so that `make deploy` restart this service
                 }
             )
 
@@ -644,24 +754,22 @@ class ComposeSpecProcessor:
                     {
                         "zane-managed": "true",
                         "zane-stack": stack.id,
+                        "zane-environment": stack.environment_id,
                         "zane-project": stack.project_id,
                     }
                 )
 
         # Add labels to configs for tracking
-        # renamed_configs = {}
-        # all_configs: dict[str, str] = cast(dict, stack.configs) or {}
         for config_name, config in spec.configs.items():
             if not config.external:
                 config.labels.update(
                     {
                         "zane-managed": "true",
                         "zane-stack": stack.id,
+                        "zane-environment": stack.environment_id,
                         "zane-project": stack.project_id,
                     }
                 )
-
-            # renamed_configs[config_name] = config
 
             # process config `content` to `file` reference
             if config.content is not None:
@@ -678,7 +786,7 @@ class ComposeSpecProcessor:
         stack_hash_prefix: str,
     ) -> Dict[str, Any]:
         # Parse YAML
-        user_spec_dict = ComposeSpecProcessor._parse_user_yaml(user_content)
+        user_spec_dict = ComposeSpecProcessor.parse_user_yaml(user_content)
 
         compose_dict: Dict[str, Dict[str, Any]] = spec.to_dict()
 
@@ -693,16 +801,17 @@ class ComposeSpecProcessor:
 
             # Copy over user-specified fields that we didn't process
             for key, value in user_service.items():
-                if computed_service.get(key) is None:
-                    computed_service[key] = value
                 if key == "environment":
-                    envs = cast(dict[str, str], computed_service[key])
-                    new_envs: dict[str, str] = {}
-                    for k, v in envs.items():
-                        if isinstance(v, bool):
-                            v = "false"
-                        new_envs[k] = quoted(v)  # always quote env variables
-                    computed_service["environment"] = new_envs
+                    envs = cast(dict[str, str] | None, computed_service.get(key))
+                    if envs is not None:
+                        new_envs: dict[str, str] = {}
+                        for k, v in envs.items():
+                            if isinstance(v, bool):
+                                v = str(v).lower()
+                            new_envs[k] = quoted(v)  # always quote env variables
+                        computed_service["environment"] = new_envs
+                elif computed_service.get(key) is None:
+                    computed_service[key] = value
 
             reconciled_services[hashed_name] = computed_service
 
@@ -768,24 +877,66 @@ class ComposeSpecProcessor:
             ),
         )
 
-        before = yaml.safe_dump(
-            ComposeSpecProcessor._reconcile_computed_spec_with_user_content(
-                spec,
-                user_content,
-                stack_hash_prefix,
-            ),
+        reconcilied = ComposeSpecProcessor._reconcile_computed_spec_with_user_content(
+            spec,
+            user_content,
+            stack_hash_prefix,
+        )
+
+        # to prevent syntax errors when expanding env variables, we
+        # use the json format of the compose file
+        json_spec = json.dumps(reconcilied, indent=2)
+
+        print("=== json_spec ===")
+        print(json_spec)
+
+        x_envs = spec.to_dict()["x-zane-env"]
+        expanded = expand(json_spec, environ=x_envs, surrounded_vars_only=True)
+
+        print("=== expanded ===")
+        print(expanded)
+
+        # in case there is a single slash that isn't correctly formatted after var expansion:
+        # ex: "echo \$date" , it should be reformatted correctly to `"echo \\$date"`
+        # (?<!\\): Negative Lookbehind
+        # (?<\\): Positive Lookbehind
+        # (?!\\): Negative Lookahead
+        # (?\\): Positive Lookahead
+        non_escaped_single_slash = re.compile(
+            r"(?<!\\)(\\)(?!\\)([^rnt\"])", re.MULTILINE
+        )
+
+        expanded = re.sub(
+            non_escaped_single_slash, r"\\\\\2", expanded
+        )  # `\\` is one slash and \2 is the character after the single slash
+
+        all_quoted_strings = re.compile(r"(?:\:\s*)\"(.*)\"", re.MULTILINE)
+        non_escaped_quotes = re.compile(r"(?<!\\)(\")", re.MULTILINE)
+
+        def escape_inner_quotes(match: re.Match) -> str:
+            full = match.group(0)
+            inner = match.group(1)
+            escaped_inner = non_escaped_quotes.sub(r'\\"', inner)
+            return full[: match.start(1) - match.start(0)] + escaped_inner + '"'
+
+        expanded = re.sub(all_quoted_strings, escape_inner_quotes, expanded)
+
+        print("=== expanded reformatted ===")
+        print(expanded)
+
+        # convert <service>.deploy.replicas to integer (if set)
+        expanded_spec = json.loads(expanded)
+        for service in expanded_spec.get("services", {}).values():
+            deploy = service.get("deploy")
+            if deploy and "replicas" in deploy:
+                deploy["replicas"] = int(deploy["replicas"])
+
+        return yaml.safe_dump(
+            expanded_spec,
             default_flow_style=False,
             sort_keys=False,  # Preserve order
             allow_unicode=True,
         )
-
-        # always quote string characters to not confuse them with other value types
-        expanded = expand(
-            before,
-            environ=spec.to_dict()["x-zane-env"],
-        )
-
-        return expanded
 
     @classmethod
     def extract_new_env_overrides(
@@ -795,7 +946,7 @@ class ComposeSpecProcessor:
         overrides = []
 
         for key, env in spec.envs.items():
-            if env.is_newly_generated:
+            if env.is_exposed:
                 overrides.append(
                     {
                         "key": key,
@@ -807,7 +958,9 @@ class ComposeSpecProcessor:
 
     @classmethod
     def extract_config_contents(
-        cls, spec: ComposeStackSpec, stack: "ComposeStack"
+        cls,
+        spec: ComposeStackSpec,
+        stack: "ComposeStack",
     ) -> Dict[str, "ComposeVersionedConfig"]:
         previous_configs = stack.configs or {}
         new_configs = {}
@@ -815,7 +968,9 @@ class ComposeSpecProcessor:
         for name, config in spec.configs.items():
             if config.is_derived_from_content and config.content is not None:
                 expanded_content = expand(
-                    config.content, environ=spec.to_dict()["x-zane-env"]
+                    config.content,
+                    environ=spec.to_dict()["x-zane-env"],
+                    surrounded_vars_only=True,
                 )
 
                 # Get previous version info
@@ -904,6 +1059,7 @@ class ComposeSpecProcessor:
                 http_port = expand(
                     str(labels.get(f"zane.http.routes.{route_index}.port", "None")),
                     environ=environ,
+                    surrounded_vars_only=True,
                 )
 
                 domain = str(labels.get(f"zane.http.routes.{route_index}.domain"))
@@ -915,9 +1071,22 @@ class ComposeSpecProcessor:
                 ).lower()
 
                 route: dict[str, Any] = {
-                    "domain": expand(domain, environ=environ),
-                    "base_path": expand(base_path, environ=environ),
-                    "strip_prefix": expand(strip_prefix, environ=environ) == "true",
+                    "domain": expand(
+                        domain,
+                        environ=environ,
+                        surrounded_vars_only=True,
+                    ),
+                    "base_path": expand(
+                        base_path,
+                        environ=environ,
+                        surrounded_vars_only=True,
+                    ),
+                    "strip_prefix": expand(
+                        strip_prefix,
+                        environ=environ,
+                        surrounded_vars_only=True,
+                    )
+                    == "true",
                     "port": http_port,
                 }
                 name = service_name.removeprefix(f"{stack_hash_prefix}_")
@@ -925,8 +1094,10 @@ class ComposeSpecProcessor:
                 route_dict[key] = route
 
                 existing_exact = find_item_in_sequence(
-                    lambda r: (r["domain"] == route["domain"])
-                    and r["base_path"] == route["base_path"],
+                    lambda r: (
+                        (r["domain"] == route["domain"])
+                        and r["base_path"] == route["base_path"]
+                    ),
                     all_routes,
                 )
                 if existing_exact:
@@ -960,11 +1131,16 @@ class ComposeSpecProcessor:
                     routes
                 )
 
+        # Check that URLs in stack are not overshadowed by wildcard URLs in the same stack
         for service, routes in service_urls.items():
             for route_index, url_route in enumerate(routes):
-                domain = url_route.domain
-                domain_parts = domain.split(".")
-                domain_as_wildcard = domain.replace(domain_parts[0], "*", 1)
+                domain_as_wildcard = domain_to_wildcard(url_route.domain)
+
+                # If the domain is already a wildcard, we do not need to check if it
+                # is overshadowed by itself
+                if url_route.domain == domain_as_wildcard:
+                    continue
+
                 existing_wildcard = find_item_in_sequence(
                     lambda r: (
                         r["domain"] == domain_as_wildcard
@@ -972,6 +1148,7 @@ class ComposeSpecProcessor:
                     ),
                     all_routes,
                 )
+
                 if existing_wildcard:
                     raise serializers.ValidationError(
                         {
@@ -1017,10 +1194,9 @@ class ComposeSpecProcessor:
         for service in spec.services.values():
             updated_service_configs = []
             for service_config in service.configs:
-                new_name = config_name_mapping.get(
-                    service_config.source, service_config.source
-                )
-                service_config.source = new_name
+                new_name = config_name_mapping.get(service_config.source)
+                if new_name is not None:
+                    service_config.source = new_name
                 updated_service_configs.append(service_config)
             service.configs = updated_service_configs
 

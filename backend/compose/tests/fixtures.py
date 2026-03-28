@@ -29,6 +29,35 @@ services:
         zane.http.routes.0.base_path: "/"
 """
 
+DOCKER_COMPOSE_WILDCARD_WEB_SERVICE = """
+services:
+  web:
+    image: nginxdemos/hello:latest
+    deploy:
+      labels:
+        zane.http.routes.0.port: "80"
+        zane.http.routes.0.domain: "*.zaneops.io"
+        zane.http.routes.0.base_path: "/"
+"""
+
+DOCKER_COMPOSE_MULTIPLE_WEB_SERVICES = """
+services:
+  frontend:
+    image: nginxdemos/hello:latest
+    deploy:
+      labels:
+        zane.http.routes.0.port: "80"
+        zane.http.routes.0.domain: "frontend.127-0-0-1.sslip.io"
+        zane.http.routes.0.base_path: "/"
+  api:
+    image: nginxdemos/hello:latest
+    deploy:
+      labels:
+        zane.http.routes.0.port: "80"
+        zane.http.routes.0.domain: "api.127-0-0-1.sslip.io"
+        zane.http.routes.0.base_path: "/"
+"""
+
 DOCKER_COMPOSE_MULTIPLE_ROUTES = """
 services:
   api:
@@ -227,6 +256,12 @@ services:
     image: valkey/valkey:alpine
 """
 
+INVALID_COMPOSE_VAR_SYNTAX = """
+services:
+  redis:
+    image: valkey/valkey:$${ IMAGE_VERSION:-alpine}
+"""
+
 
 INVALID_COMPOSE_NO_IMAGE = """
 services:
@@ -415,8 +450,8 @@ services:
     image: myapi:latest
     deploy:
       labels:
-        zane.http.routes.0.port: $API_PORT
-        zane.http.routes.0.domain: $API_DOMAIN
+        zane.http.routes.0.port: ${API_PORT}
+        zane.http.routes.0.domain: ${API_DOMAIN}
 
   dashboard:
     image: mydashboard:latest
@@ -1257,6 +1292,72 @@ services:
         zane.http.routes.0.base_path: "/"
 """
 
+DOKPLOY_DOCMOST_TEMPLATE = DokployTemplate(
+    compose="""
+version: "3"
+
+services:
+  docmost:
+    image: docmost/docmost:0.4.1
+    depends_on:
+      - db
+      - redis
+    environment:
+      - APP_URL
+      - APP_SECRET
+      - APP_WHATEVER
+      - DATABASE_URL=postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?schema=public
+      - REDIS_URL=redis://redis:6379
+    restart: unless-stopped
+
+    volumes:
+      - docmost:/app/data/storage
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+    restart: unless-stopped
+
+    volumes:
+      - db_docmost_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7.2-alpine
+    restart: unless-stopped
+
+    volumes:
+      - redis_docmost_data:/data
+
+volumes:
+  docmost:
+  db_docmost_data:
+  redis_docmost_data:
+""",
+    config="""
+[variables]
+main_domain = "${domain}"
+postgres_password = "${password}"
+app_secret = "${password}"
+
+[config]
+env = [
+  "POSTGRES_DB=docmost",
+  "POSTGRES_USER=docmost",
+  "POSTGRES_PASSWORD=${postgres_password}",
+  "APP_URL=http://${main_domain}:3000",
+  "APP_SECRET=${app_secret}",
+]
+mounts = []
+
+[[config.domains]]
+serviceName = "docmost"
+port = 3_000
+host = "${main_domain}"
+""",
+)
 DOKPLOY_POSTGRES_TEMPLATE = DokployTemplate(
     compose="""
 version: "3.8"
@@ -1294,3 +1395,298 @@ PG_DB = "${pg_db}"
 PG_PASS = "${password:32}" # Password for PostgreSQL authentication
 """,
 )
+
+DOKPLOY_WORDPRESS_TEMPLATE = DokployTemplate(
+    compose="""
+services:
+  wordpress:
+    image: wordpress:latest
+    volumes:
+      - wp_app:/var/www/html
+      - ../files/uploads.ini:/usr/local/etc/php/conf.d/uploads.ini
+    environment:
+      WORDPRESS_DB_HOST: wp_db
+      WORDPRESS_DB_NAME: $DB_NAME
+      WORDPRESS_DB_USER: root
+      WORDPRESS_DB_PASSWORD: $DB_PASSWORD
+      WORDPRESS_DEBUG: ${WORDPRESS_DEBUG:-0}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_MEMORY_LIMIT', '256M');
+        define('DISALLOW_FILE_EDIT', true);
+    depends_on:
+      wp_db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  wp_db:
+    image: mysql:8.4
+    restart: unless-stopped
+    volumes:
+      - wp_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: $DB_PASSWORD
+      MYSQL_DATABASE: $DB_NAME
+    healthcheck:
+      test: ["CMD-SHELL", "exit | mysql -h localhost -P 3306 -u root -p$$MYSQL_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  wp_app:
+  wp_data:
+""",
+    config='''
+[variables]
+main_domain = "${domain}"
+db_name = "wordpress"
+db_user = "wordpress"
+db_password = "${password:32}"
+
+[config]
+env = [
+  "WORDPRESS_DEBUG=0",
+  "DB_NAME=${db_name}",
+  "DB_USER=${db_user}",
+  "DB_PASSWORD=${db_password}"
+]
+
+[[config.domains]]
+serviceName = "wordpress"
+port = 80
+host = "${main_domain}"
+
+[[config.mounts]]
+filePath = "uploads.ini"
+content = """upload_max_filesize = 64M
+post_max_size = 64M
+memory_limit = 256M
+max_execution_time = 300
+max_input_vars = 3000
+""" 
+''',
+)
+
+DOKPLOY_PLAUSIBLE_TEMPLATE = DokployTemplate(
+    compose="""
+services:
+  plausible_db:
+    image: postgres:16-alpine
+    restart: always
+
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+
+  plausible_events_db:
+    image: clickhouse/clickhouse-server:24.3.3.102-alpine
+    restart: always
+
+    volumes:
+      - event-data:/var/lib/clickhouse
+      - event-logs:/var/log/clickhouse-server
+      - ../files/clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/logging.xml:ro
+      - ../files/clickhouse/clickhouse-user-config.xml:/etc/clickhouse-server/users.d/logging.xml:ro
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  plausible:
+    image: ghcr.io/plausible/community-edition:v2.1.5
+    restart: always
+    command: sh -c "sleep 10 && /entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"
+    depends_on:
+      - plausible_db
+      - plausible_events_db
+    env_file:
+      - .env
+
+volumes:
+  db-data:
+    driver: local
+  event-data:
+    driver: local
+  event-logs:
+    driver: local
+""",
+    config='''
+[variables]
+main_domain = "${domain}"
+secret_base = "${base64:64}"
+totp_key = "${base64:32}"
+
+[[config.domains]]
+serviceName = "plausible"
+port = 8_000
+host = "${main_domain}"
+
+[config.env]
+BASE_URL = "http://${main_domain}"
+SECRET_KEY_BASE = "${secret_base}"
+TOTP_VAULT_KEY = "${totp_key}"
+
+[[config.mounts]]
+filePath = "/clickhouse/clickhouse-config.xml"
+content = """
+<clickhouse>
+  <logger>
+    <level>warning</level>
+    <console>true</console>
+  </logger>
+
+  <!-- Stop all the unnecessary logging -->
+  <query_thread_log remove="remove"/>
+  <query_log remove="remove"/>
+  <text_log remove="remove"/>
+  <trace_log remove="remove"/>
+  <metric_log remove="remove"/>
+  <asynchronous_metric_log remove="remove"/>
+  <session_log remove="remove"/>
+  <part_log remove="remove"/>
+</clickhouse>
+"""
+
+[[config.mounts]]
+filePath = "/clickhouse/clickhouse-user-config.xml"
+content = """
+<clickhouse>
+  <profiles>
+    <default>
+      <log_queries>0</log_queries>
+      <log_query_threads>0</log_query_threads>
+    </default>
+  </profiles>
+</clickhouse>
+"""
+''',
+)
+
+# Prefixed vars create overrides on deployment (key keeps double underscore)
+DOCKER_COMPOSE_WITH_PREFIXED_ENV_OVERRIDE = """
+x-zane-env:
+  __DATABASE_PASSWORD: "my-secret-password"
+  __API_KEY: "api-key-12345"
+  REGULAR_VAR: "plain-value"
+
+services:
+  app:
+    image: myapp:latest
+    environment:
+      DB_PASSWORD: ${__DATABASE_PASSWORD}
+      API_KEY: ${__API_KEY}
+      CONFIG: ${REGULAR_VAR}
+"""
+
+# Variable expansion with prefixed vars
+DOCKER_COMPOSE_WITH_PREFIXED_ENV_EXPANSION = """
+x-zane-env:
+  HOST: "localhost"
+  PORT: "5432"
+  DB_NAME: "mydb"
+  __DATABASE_URL: "postgres://user@${HOST}:${PORT}/${DB_NAME}"
+
+services:
+  app:
+    image: myapp:latest
+    environment:
+      DATABASE_URL: ${__DATABASE_URL}
+"""
+
+# Mixed usage: template + prefix + plain values together
+DOCKER_COMPOSE_WITH_MIXED_ENV_TYPES = """
+x-zane-env:
+  DB_PASSWORD: "{{ generate_password | 32 }}"
+  __DB_NAME: "my-database"
+  DB_USER: "admin"
+  __API_SECRET: "super-secret-key"
+  API_URL: "http://api.example.com"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${__DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+  app:
+    image: myapp:latest
+    environment:
+      API_SECRET: ${__API_SECRET}
+      API_URL: ${API_URL}
+"""
+
+# For redeployment tests - simple prefixed env
+DOCKER_COMPOSE_WITH_PREFIXED_SIMPLE = """
+x-zane-env:
+  __CONFIG_VALUE: "initial-value"
+
+services:
+  app:
+    image: myapp:latest
+    environment:
+      CONFIG: ${__CONFIG_VALUE}
+"""
+
+# For shared env variables tests
+# This compose file references shared env variables from the environment in x-zane-env section
+DOCKER_COMPOSE_WITH_SHARED_ENV_REFERENCES = """
+x-zane-env:
+  GITHUB_CLIENT_ID: "{{env.GITHUB_CLIENT_ID}}"
+  GITHUB_TOKEN: "{{env.GITHUB_TOKEN}}"
+  DATABASE_URL: "postgres://user:pass@db:5432/{{env.DB_NAME}}"
+
+services:
+  app:
+    image: myapp:latest
+    environment:
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      DATABASE_URL: ${DATABASE_URL}
+"""
+
+# This compose file does NOT reference any shared env variables
+DOCKER_COMPOSE_WITHOUT_SHARED_ENV_REFERENCES = """
+x-zane-env:
+  APP_SECRET: "{{ generate_password | 32 }}"
+
+services:
+  app:
+    image: myapp:latest
+    environment:
+      APP_NAME: "my-application"
+      DEBUG: "false"
+      APP_SECRET: ${APP_SECRET}
+"""
+
+INVALID_COMPOSE_DUPLICATE_CONFIG_TARGET = """
+services:
+  web:
+    image: nginx:alpine
+    configs:
+      - source: nginx_config
+        target: /etc/nginx/nginx.conf
+      - source: nginx_config_override
+        target: /etc/nginx/nginx.conf
+
+configs:
+  nginx_config:
+    content: |
+      user nginx;
+      worker_processes auto;
+  nginx_config_override:
+    content: |
+      user nginx;
+      worker_processes 2;
+"""
+
+# This compose file has shared env reference outside x-zane-env (should not be expanded)
+DOCKER_COMPOSE_WITH_SHARED_ENV_OUTSIDE_X_ZANE_ENV = """
+services:
+  app:
+    image: myapp:latest
+    environment:
+      GITHUB_CLIENT_ID: "{{env.GITHUB_CLIENT_ID}}"
+"""

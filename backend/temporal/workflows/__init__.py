@@ -37,6 +37,7 @@ with workflow.unsafe.imports_passed_through():
         update_image_version_in_env_file,
         wait_for_service_to_be_updated,
         update_ongoing_state,
+        get_all_zane_services,
     )
     from . import (
         ArchiveDockerServiceWorkflow,
@@ -56,15 +57,18 @@ with workflow.unsafe.imports_passed_through():
         UpdateBuildRegistryWorkflow,
         DeployComposeStackWorkflow,
         ArchiveComposeStackWorkflow,
+        ToggleComposeStackWorkflow,
     )
     from ..schedules import (
         MonitorDockerDeploymentWorkflow,
         MonitorDockerDeploymentActivities,
         CleanupActivities,
         CleanupAppLogsWorkflow,
+        DockerComposeStackMetricsActivities,
+        CollectComposeStacksMetricsWorkflow,
         MonitorRegistryDeploymentActivites,
         MonitorRegistrySwarmServiceWorkflow,
-        DockerDeploymentStatsActivities,
+        DockerDeploymentMetricsActivities,
         GetDockerDeploymentStatsWorkflow,
         close_faulty_db_connections,
         MonitorComposeStackActivites,
@@ -77,11 +81,12 @@ def get_workflows_and_activities():
     monitor_activities = MonitorDockerDeploymentActivities()
     cleanup_activites = CleanupActivities()
     system_cleanup_activities = SystemCleanupActivities()
-    metrics_activities = DockerDeploymentStatsActivities()
+    metrics_activities = DockerDeploymentMetricsActivities()
     git_activities = GitActivities()
     monitor_registry_activites = MonitorRegistryDeploymentActivites()
     monitor_stack_activites = MonitorComposeStackActivites()
     stack_activites = ComposeStackActivities()
+    stack_metrics_activites = DockerComposeStackMetricsActivities()
 
     return dict(
         workflows=[
@@ -107,6 +112,8 @@ def get_workflows_and_activities():
             DeployComposeStackWorkflow,
             MonitorComposeStackWorkflow,
             ArchiveComposeStackWorkflow,
+            ToggleComposeStackWorkflow,
+            CollectComposeStacksMetricsWorkflow,
         ],
         activities=[
             git_activities.get_default_build_registry,
@@ -126,15 +133,14 @@ def get_workflows_and_activities():
             git_activities.generate_default_files_for_nixpacks_builder,
             git_activities.generate_default_files_for_railpack_builder,
             git_activities.build_service_with_railpack_dockerfile,
-            metrics_activities.get_deployment_stats,
-            metrics_activities.save_deployment_stats,
+            metrics_activities.collect_deployment_metrics,
+            metrics_activities.save_deployment_metrics,
             swarm_activities.set_cancelling_status,
             swarm_activities.create_environment_network,
             swarm_activities.get_archived_env_services,
             swarm_activities.delete_environment_network,
             swarm_activities.save_cancelled_deployment,
             swarm_activities.create_deployment_stats_schedule,
-            swarm_activities.unexpose_docker_deployment_from_http,
             swarm_activities.remove_changed_urls_in_deployment,
             swarm_activities.create_project_network,
             swarm_activities.unexpose_docker_service_from_http,
@@ -148,7 +154,6 @@ def get_workflows_and_activities():
             swarm_activities.delete_created_volumes,
             swarm_activities.create_swarm_service_for_docker_deployment,
             swarm_activities.run_deployment_healthcheck,
-            swarm_activities.expose_docker_deployment_to_http,
             swarm_activities.expose_docker_service_to_http,
             swarm_activities.finish_and_save_deployment,
             swarm_activities.cleanup_previous_production_deployment,
@@ -180,27 +185,31 @@ def get_workflows_and_activities():
             stack_activites.check_stack_health,
             stack_activites.create_stack_healthcheck_schedule,
             stack_activites.expose_stack_services_to_http,
-            stack_activites.finalize_deployment,
+            stack_activites.finalize_stack_deployment,
             stack_activites.cleanup_temporary_directory_for_stack_deployment,
             stack_activites.unexpose_stack_services_from_http,
             stack_activites.get_services_in_stack,
             stack_activites.wait_for_stack_service_containers_to_be_deleted,
             stack_activites.remove_stack_with_cli,
-            stack_activites.delete_stack_configs,
-            stack_activites.delete_stack_volumes,
             stack_activites.lock_stack_deploy_semaphore,
             stack_activites.reset_stack_deploy_semaphore,
-            stack_activites.delete_stack_healthcheck_schedule,
             stack_activites.cleanup_old_stack_urls,
             stack_activites.get_next_queued_deployment,
-            stack_activites.cleanup_old_stack_services,
+            stack_activites.save_cancelled_stack_deployment,
+            stack_activites.scale_down_stack_services,
+            stack_activites.scale_up_stack_services,
+            stack_activites.delete_stack_resources,
+            stack_activites.create_stack_metrics_schedule,
             monitor_stack_activites.save_stack_health_check_status,
             monitor_stack_activites.run_stack_healthcheck,
+            stack_metrics_activites.collect_compose_stack_metrics,
+            stack_metrics_activites.save_compose_stack_metrics,
             acquire_service_deploy_semaphore,
             lock_deploy_semaphore,
             release_service_deploy_semaphore,
             reset_deploy_semaphore,
             schedule_update_docker_service,
+            get_all_zane_services,
             update_image_version_in_env_file,
             delete_env_resources,
             wait_for_service_to_be_updated,

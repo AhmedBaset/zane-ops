@@ -45,10 +45,12 @@ from temporal.workflows import (
     ArchiveEnvWorkflow,
     DeployDockerServiceWorkflow,
     DelayedArchiveEnvWorkflow,
+    DeployComposeStackWorkflow,
 )
 from temporal.shared import (
     EnvironmentDetails,
     DeploymentDetails,
+    ComposeStackDeploymentDetails,
 )
 from rest_framework import viewsets
 from rest_framework import permissions
@@ -137,8 +139,9 @@ class CloneEnviromentAPIView(APIView):
         form = CloneEnvironmentRequestSerializer(data=request.data)
         form.is_valid(raise_exception=True)
 
-        name = form.data["name"].lower()  # type: ignore
-        should_deploy_services = form.data["deploy_services"]  # type: ignore
+        data = cast(dict, form.data)
+        name = data["name"].lower()
+        should_deploy = data["deploy_after_clone"]
         try:
             new_environment = current_environment.clone(
                 env_name=name,
@@ -160,11 +163,30 @@ class CloneEnviromentAPIView(APIView):
                 )
             ]
 
-            if should_deploy_services:
+            if should_deploy:
+                for stack in new_environment.compose_stacks.all():
+                    deployment = stack.deployments.create(
+                        commit_message="Deploy from clone",
+                    )
+                    stack.apply_pending_changes(deployment)
+
+                    deployment.stack_snapshot = stack.snapshot.to_dict()  # type: ignore
+                    deployment.save()
+
+                    payload = ComposeStackDeploymentDetails.from_deployment(deployment)
+                    workflows_to_run.append(
+                        StartWorkflowArg(
+                            DeployComposeStackWorkflow.run,
+                            payload,
+                            payload.workflow_id,
+                        )
+                    )
                 for service in new_environment.services.all():
                     if service.type == Service.ServiceType.DOCKER_REGISTRY:
                         workflow = DeployDockerServiceWorkflow.run
-                        new_deployment = service.prepare_new_docker_deployment()
+                        new_deployment = service.prepare_new_docker_deployment(
+                            commit_message="Clone deployment"
+                        )
                     else:
                         workflow = DeployGitServiceWorkflow.run
                         new_deployment = service.prepare_new_git_deployment()
@@ -194,7 +216,6 @@ class CloneEnviromentAPIView(APIView):
 
 
 class ReviewPreviewEnvDeployAPIView(APIView):
-
     @extend_schema(
         responses={200: EnvironmentWithVariablesSerializer},
         operation_id="getPreviewEnvToReview",
@@ -372,11 +393,7 @@ class ReviewPreviewEnvDeployAPIView(APIView):
                 workflows_to_run.append(
                     StartWorkflowArg(
                         workflow=ArchiveEnvWorkflow.run,
-                        payload=EnvironmentDetails(
-                            id=environment.id,
-                            project_id=project.id,
-                            name=environment.name,
-                        ),
+                        payload=EnvironmentDetails.from_environment(environment),
                         workflow_id=environment.archive_workflow_id,
                     )
                 )
@@ -504,9 +521,7 @@ class EnvironmentDetailsAPIView(APIView):
 
         environment.delete_resources()
 
-        details = EnvironmentDetails(
-            id=environment.id, project_id=project.id, name=environment.name
-        )
+        details = EnvironmentDetails.from_environment(environment)
         workflow_id = environment.archive_workflow_id
         transaction.on_commit(
             lambda: TemporalClient.start_workflow(
@@ -523,9 +538,7 @@ class EnvironmentDetailsAPIView(APIView):
 class SharedEnvVariablesViewSet(viewsets.ModelViewSet):
     serializer_class = SharedEnvVariableSerializer
     pagination_class = None
-    queryset = (
-        SharedEnvVariable.objects.all()
-    )  # This is to document API endpoints with drf-spectacular, in practive what is used is `get_queryset`
+    queryset = SharedEnvVariable.objects.all()  # This is to document API endpoints with drf-spectacular, in practive what is used is `get_queryset`
 
     def get_queryset(self):  # type: ignore
         project_slug = self.kwargs["project_slug"]
@@ -743,8 +756,8 @@ class TriggerPreviewEnvironmentAPIView(APIView):
                 is_fork = pull_request["head"]["repo"]["fork"]
                 should_deploy = not is_fork
 
-                base_repository_url = f"https://github.com/{pull_request["base"]['repo']["full_name"]}.git"
-                head_repository_url = f"https://github.com/{pull_request["head"]['repo']["full_name"]}.git"
+                base_repository_url = f"https://github.com/{pull_request['base']['repo']['full_name']}.git"
+                head_repository_url = f"https://github.com/{pull_request['head']['repo']['full_name']}.git"
 
                 env_name = f"preview-pr-{pull_request['number']}-{current_service.slug}-{fake.slug()}".lower()
                 preview_meta = PreviewEnvMetadata.objects.create(
@@ -850,6 +863,24 @@ class TriggerPreviewEnvironmentAPIView(APIView):
                 )
             ]
 
+            for stack in new_environment.compose_stacks.all():
+                deployment = stack.deployments.create(
+                    commit_message="Deploy from clone",
+                )
+                stack.apply_pending_changes(deployment)
+
+                deployment.stack_snapshot = stack.snapshot.to_dict()  # type: ignore
+                deployment.save()
+
+                payload = ComposeStackDeploymentDetails.from_deployment(deployment)
+                workflows_to_run.append(
+                    StartWorkflowArg(
+                        DeployComposeStackWorkflow.run,
+                        payload,
+                        payload.workflow_id,
+                    )
+                )
+
             for service in new_environment.services.all():
                 if service.type == Service.ServiceType.DOCKER_REGISTRY:
                     workflow = DeployDockerServiceWorkflow.run
@@ -903,9 +934,7 @@ class TriggerPreviewEnvironmentAPIView(APIView):
 class PreviewEnvTemplateListAPIView(ListCreateAPIView):
     serializer_class = PreviewEnvTemplateSerializer
     pagination_class = None
-    queryset = (
-        PreviewEnvTemplate.objects.all()
-    )  # This is to document API endpoints with drf-spectacular, in practive what is used is `get_queryset`
+    queryset = PreviewEnvTemplate.objects.all()  # This is to document API endpoints with drf-spectacular, in practive what is used is `get_queryset`
 
     def get_queryset(self):  # type: ignore
         project_slug = self.kwargs["slug"]
@@ -939,9 +968,7 @@ class PreviewEnvTemplateDetailsAPIView(RetrieveUpdateDestroyAPIView):
     lookup_url_kwarg = (
         "template_slug"  # This corresponds to the param in the URL configuration
     )
-    queryset = (
-        PreviewEnvTemplate.objects.all()
-    )  # This is to document API endpoints with drf-spectacular, in practive what is used is `get_object`
+    queryset = PreviewEnvTemplate.objects.all()  # This is to document API endpoints with drf-spectacular, in practive what is used is `get_object`
     http_method_names = ["patch", "get", "delete"]
 
     def get_serializer(self, *args, **kwargs):

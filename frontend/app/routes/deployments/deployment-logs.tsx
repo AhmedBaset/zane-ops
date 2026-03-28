@@ -1,8 +1,11 @@
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
-import { AnsiHtml } from "fancy-ansi/react";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient
+} from "@tanstack/react-query";
 import {
   ArrowDownIcon,
-  ChevronRightIcon,
+  ArrowLeftIcon,
   LoaderIcon,
   Maximize2Icon,
   Minimize2Icon,
@@ -16,22 +19,26 @@ import { Virtuoso } from "react-virtuoso";
 import { useDebouncedCallback } from "use-debounce";
 import type { Writeable } from "zod";
 import { DateRangeWithShortcuts } from "~/components/date-range-with-shortcuts";
+import { Log } from "~/components/log";
 import { MultiSelect } from "~/components/multi-select";
 import { Ping } from "~/components/ping";
-import { Button, buttonVariants } from "~/components/ui/button";
+import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from "~/components/ui/select";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger
 } from "~/components/ui/tooltip";
+import { REALLY_BIG_NUMBER_THAT_IS_LESS_THAN_MAX_SAFE_INTEGER } from "~/lib/constants";
 import {
-  MAX_VISIBLE_LOG_CHARS_LIMIT,
-  REALLY_BIG_NUMBER_THAT_IS_LESS_THAN_MAX_SAFE_INTEGER
-} from "~/lib/constants";
-import {
-  type DeploymentLog,
   type DeploymentLogFilters,
   LOG_LEVELS,
   deploymentLogSearchSchema,
@@ -39,8 +46,7 @@ import {
 } from "~/lib/queries";
 import { cn, formatLogTime } from "~/lib/utils";
 import { queryClient } from "~/root";
-import { excerpt } from "~/utils";
-import { type Route } from "./+types/deployment-logs";
+import type { Route } from "./+types/deployment-logs";
 
 export async function clientLoader({
   params: {
@@ -107,10 +113,25 @@ export default function DeploymentLogsPage({
       filters,
       queryClient,
       autoRefetchEnabled: isAutoRefetchEnabled
-    })
+    }),
+    enabled: !search.context
   });
 
-  const logs = (logsQuery.data?.pages ?? []).flatMap((item) => item.results);
+  const logsWithContextQuery = useQuery({
+    ...deploymentQueries.logWithContext({
+      deployment_hash,
+      project_slug,
+      service_slug,
+      env_slug,
+      time: search.context!,
+      context_lines: search.context_lines ?? 20
+    }),
+    enabled: !!search.context
+  });
+
+  const logs = logsWithContextQuery.isEnabled
+    ? (logsWithContextQuery.data?.results ?? [])
+    : (logsQuery.data?.pages ?? []).flatMap((item) => item.results);
   const logContentRef = React.useRef<React.ComponentRef<"section">>(null);
   const [, startTransition] = React.useTransition();
   const [isAtBottom, setIsAtBottom] = React.useState(true);
@@ -349,8 +370,9 @@ export default function DeploymentLogsPage({
             data={logs}
             components={{
               Header: () =>
+                !search.context &&
                 (logsQuery.hasPreviousPage ||
-                  logsQuery.isFetchingPreviousPage) && (
+                  logsQuery.isFetchingPreviousPage) ? (
                   <div
                     ref={fetchPreviousPageRef}
                     className={cn(
@@ -360,15 +382,25 @@ export default function DeploymentLogsPage({
                     <LoaderIcon size={15} className="animate-spin" />
                     <p>Fetching previous logs...</p>
                   </div>
+                ) : (
+                  <div className="h-8"></div>
                 ),
               Footer: () => (
                 <>
-                  <div ref={fetchNextPageRef} className="w-fit h-px" />
+                  {!search.context && (
+                    <div ref={fetchNextPageRef} className="w-fit h-px" />
+                  )}
                   <div
                     className={cn("w-full pb-2 text-center text-grey italic")}
                     ref={autoRefetchRef}
                   >
-                    -- LIVE <Ping /> new log entries will appear here --
+                    {search.context ? (
+                      <>-- End of log context --</>
+                    ) : (
+                      <>
+                        -- LIVE <Ping /> new log entries will appear here --
+                      </>
+                    )}
                   </div>
                 </>
               )
@@ -377,6 +409,7 @@ export default function DeploymentLogsPage({
               <Log
                 id={log.id}
                 time={log.time}
+                timestamp={log.timestamp}
                 level={log.level}
                 key={log.id}
                 content={(log.content as string) ?? ""}
@@ -424,6 +457,7 @@ const HeaderSection = React.memo(function HeaderSection({
   const isEmptySearchParams =
     !search.time_after &&
     !search.time_before &&
+    !search.context &&
     (search.level ?? []).length === 0 &&
     (search.query ?? "").length === 0;
 
@@ -442,6 +476,16 @@ const HeaderSection = React.memo(function HeaderSection({
     }
   };
 
+  const clearContext = () => {
+    startTransition(() => {
+      searchParams.delete("context");
+      searchParams.delete("context_lines");
+      setSearchParams(searchParams, {
+        replace: true
+      });
+    });
+  };
+
   const searchLogsForContent = useDebouncedCallback((query: string) => {
     startTransition(() => {
       searchParams.set("query", query);
@@ -449,10 +493,18 @@ const HeaderSection = React.memo(function HeaderSection({
     });
   }, 300);
 
+  // const contextAsDate = search.context
+  const logContextTime = search.context
+    ? formatLogTime(new Date(search.context / 1_000_000 /* ns to ms */))
+    : null;
+
   return (
     <>
       <section className="rounded-t-sm w-full flex gap-2 flex-col items-start">
-        <div className="flex items-center gap-2 flex-wrap">
+        <div
+          className="flex items-center gap-2 flex-wrap"
+          hidden={!!search.context}
+        >
           <DateRangeWithShortcuts
             date={date}
             setDate={(newDateRange) => {
@@ -499,21 +551,73 @@ const HeaderSection = React.memo(function HeaderSection({
         </div>
 
         <div className="flex gap-2 w-full items-center relative">
-          <SearchIcon size={15} className="absolute left-4 text-grey" />
+          {logContextTime ? (
+            <>
+              <Button
+                variant="outline"
+                className="inline-flex w-min gap-1"
+                onClick={clearContext}
+              >
+                <ArrowLeftIcon size={15} />
+                <span>Back</span>
+              </Button>
+              <Select
+                value={(search.context_lines ?? 20).toString()}
+                onValueChange={(value) => {
+                  searchParams.set("context_lines", value);
+                  setSearchParams(searchParams);
+                }}
+              >
+                <SelectTrigger className="w-36 [&_[data-label]]:inline">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="border border-border" side="top">
+                  {[10, 20, 30, 40, 50, 100, 500].map((pageSize) => (
+                    <SelectItem key={pageSize} value={pageSize.toString()}>
+                      <span data-label className="text-grey hidden">
+                        Show
+                      </span>
+                      &nbsp;
+                      {pageSize} lines
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="px-11 relative flex-1  bg-muted/40 dark:bg-card/30 py-2 rounded-md">
+                <SearchIcon
+                  size={15}
+                  className="absolute left-4 top-1/2 -translate-y-1/2 text-grey"
+                />
+                <span className="text-grey">Viewing surrounding logs</span>
 
-          <Input
-            className="px-14 w-full md:min-w-150 text-sm  bg-muted/40 dark:bg-card/30"
-            placeholder="Search for log contents"
-            name="query"
-            defaultValue={search.query}
-            ref={inputRef}
-            onChange={(ev) => {
-              const newQuery = ev.currentTarget.value;
-              if (newQuery !== (search.query ?? "")) {
-                searchLogsForContent(newQuery);
-              }
-            }}
-          />
+                {search.query && (
+                  <>
+                    <span className="text-grey"> • from search: "</span>
+                    {search.query}
+                    <span className="text-grey">"</span>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <SearchIcon size={15} className="absolute left-4 text-grey" />
+              <Input
+                className="px-14 w-full md:min-w-150 text-sm  bg-muted/40 dark:bg-card/30"
+                placeholder="Search for log contents"
+                name="query"
+                defaultValue={search.query}
+                ref={inputRef}
+                hidden={!!search.context}
+                onChange={(ev) => {
+                  const newQuery = ev.currentTarget.value;
+                  if (newQuery !== (search.query ?? "")) {
+                    searchLogsForContent(newQuery);
+                  }
+                }}
+              />
+            </>
+          )}
 
           <TooltipProvider>
             <Tooltip delayDuration={0}>
@@ -545,143 +649,4 @@ const HeaderSection = React.memo(function HeaderSection({
       <hr className="border-border" />
     </>
   );
-});
-
-type LogProps = Pick<DeploymentLog, "id" | "level" | "time"> & {
-  content: string;
-  content_text: string;
-};
-
-export function Log({ content, level, time, id, content_text }: LogProps) {
-  const date = new Date(time);
-
-  const [searchParams] = useSearchParams();
-  const search = searchParams.get("query") ?? "";
-
-  const logTime = formatLogTime(date);
-
-  return (
-    <div
-      id={`log-item-${id}`}
-      className={cn(
-        "w-full flex gap-2 hover:bg-slate-400/20 relative  group",
-        "py-0 px-4 border-none border-0 ring-0",
-        level === "ERROR" && "bg-red-400/20"
-      )}
-    >
-      <span className="inline-flex items-start select-none min-w-fit flex-none">
-        <time className="text-grey" dateTime={date.toISOString()}>
-          <span className="sr-only sm:not-sr-only">
-            {logTime.dateFormat},&nbsp;
-          </span>
-          <span>{logTime.hourFormat}</span>
-        </time>
-      </span>
-
-      <div className="grid relative z-10 w-full">
-        {content_text.length <= MAX_VISIBLE_LOG_CHARS_LIMIT ? (
-          <>
-            <AnsiHtml
-              aria-hidden="true"
-              className={cn(
-                "text-start z-10 relative",
-                "col-start-1 col-end-1 row-start-1 row-end-1",
-                "break-all text-wrap whitespace-pre [text-wrap-mode:wrap]"
-              )}
-              text={content}
-            />
-            <pre
-              className={cn(
-                "text-start -z-1 text-transparent relative",
-                "col-start-1 col-end-1 row-start-1 row-end-1",
-                "break-all text-wrap whitespace-pre [text-wrap-mode:wrap] select-none"
-              )}
-            >
-              {search.length > 0 ? (
-                <HighlightedText text={content_text} highlight={search} />
-              ) : (
-                content_text
-              )}
-            </pre>
-          </>
-        ) : (
-          <LongLogContent content_text={content_text} search={search} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-function LongLogContent({
-  content_text,
-  search
-}: { content_text: string; search: string }) {
-  const [isFullContentShown, setIsFullContentShown] = React.useState(
-    content_text.length <= MAX_VISIBLE_LOG_CHARS_LIMIT
-  );
-
-  const visibleContent = isFullContentShown
-    ? content_text
-    : excerpt(content_text, MAX_VISIBLE_LOG_CHARS_LIMIT);
-
-  return (
-    <>
-      <pre
-        className={cn(
-          "text-start z-10  relative",
-          "col-start-1 col-end-1 row-start-1 row-end-1",
-          "break-all text-wrap whitespace-pre [text-wrap-mode:wrap]"
-        )}
-      >
-        {search.length > 0 ? (
-          <HighlightedText text={visibleContent} highlight={search} />
-        ) : (
-          visibleContent
-        )}
-
-        <button
-          onClick={() => setIsFullContentShown(!isFullContentShown)}
-          className={cn(
-            buttonVariants({
-              variant: "link"
-            }),
-            "inline-flex p-0 mx-2 underline h-auto rounded items-center cursor-pointer gap-1",
-            "dark:text-primary text-link"
-          )}
-        >
-          <span>{isFullContentShown ? "see less" : "see more"}</span>
-          <ChevronRightIcon
-            className={cn(
-              "flex-none relative top-0.25",
-              isFullContentShown && "-rotate-90"
-            )}
-            size={12}
-          />
-        </button>
-      </pre>
-    </>
-  );
-}
-
-function escapeRegExp(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // $& means the whole matched string
-}
-
-const HighlightedText = React.memo(function HighlightedText({
-  text,
-  highlight
-}: { text: string; highlight: string }) {
-  // Split on highlight term and include term into parts, ignore case
-  const parts = text.split(new RegExp(`(${escapeRegExp(highlight)})`, "gi"));
-  return parts.map((part, index) => {
-    if (part.toLowerCase() === highlight.toLowerCase()) {
-      return (
-        <span key={index} className="bg-yellow-400/50">
-          {part}
-        </span>
-      );
-    } else {
-      return <span key={index}>{part}</span>;
-    }
-  });
 });

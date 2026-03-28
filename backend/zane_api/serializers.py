@@ -8,6 +8,7 @@ from drf_spectacular.utils import extend_schema_field
 from drf_standardized_errors.openapi_serializers import ClientErrorEnum
 from rest_framework import serializers
 from . import models
+from django.core.exceptions import ValidationError as DjangoValidationError
 from .validators import validate_env_name, validate_url_path, validate_url_domain
 from git_connectors.serializers import GitAppSerializer, GitRepositorySerializer
 from container_registry.serializers import (
@@ -40,6 +41,20 @@ class URLPathField(serializers.CharField):
 
 class URLDomainField(serializers.CharField):
     default_validators = [validate_url_domain]
+
+
+class EnvVarDictField(serializers.DictField):
+    def to_internal_value(self, data):
+        result = super().to_internal_value(data)
+        errors = {}
+        for key in result:
+            try:
+                validate_env_name(key)
+            except DjangoValidationError as e:
+                errors[key] = e.message
+        if errors:
+            raise serializers.ValidationError(errors)
+        return result
 
 
 class CustomChoiceField(serializers.ChoiceField):
@@ -529,7 +544,7 @@ class HttpLogSerializer(serializers.ModelSerializer):
             "time",
             "deployment_id",
             "service_id",
-            "request_id",
+            "request_uuid",
             "request_ip",
             "request_path",
             "request_query",
@@ -540,6 +555,8 @@ class HttpLogSerializer(serializers.ModelSerializer):
             "request_headers",
             "response_headers",
             "request_user_agent",
+            "stack_id",
+            "stack_service_name",
         ]
 
 
@@ -561,6 +578,8 @@ class EnvironmentWithVariablesSerializer(serializers.ModelSerializer):
 class ProjectSerializer(serializers.ModelSerializer):
     healthy_services = serializers.IntegerField(read_only=True)
     total_services = serializers.IntegerField(read_only=True)
+    total_stack_services = serializers.IntegerField(read_only=True)
+    healthy_stack_services = serializers.IntegerField(read_only=True)
     environments = SimpleEnvironmentSerializer(many=True, read_only=True)
 
     class Meta:
@@ -574,4 +593,6 @@ class ProjectSerializer(serializers.ModelSerializer):
             "updated_at",
             "healthy_services",
             "total_services",
+            "total_stack_services",
+            "healthy_stack_services",
         ]

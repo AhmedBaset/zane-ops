@@ -6,7 +6,7 @@ import yaml
 
 
 if TYPE_CHECKING:
-    from zane_api.models import Deployment
+    from zane_api.models import Deployment, Environment
     from compose.models import ComposeStackDeployment
 
 from zane_api.dtos import (
@@ -44,6 +44,7 @@ class ArchivedProjectDetails:
     id: int
     original_id: str
     environments: List["EnvironmentDetails"]
+    compose_stacks: List["ComposeStackArchiveDetails"] = field(default_factory=list)
 
 
 @dataclass
@@ -156,7 +157,6 @@ class DeploymentDetails:
     workflow_id: str
     service: ServiceSnapshot
     ignore_build_cache: bool = False
-    urls: List[DeploymentURLDto] = field(default_factory=list)
     changes: List[DeploymentChangeDto] = field(default_factory=list)
     pause_at_step: int = 0
     network_alias: Optional[str] = None
@@ -173,10 +173,6 @@ class DeploymentDetails:
             image_tag=deployment.image_tag,
             ignore_build_cache=deployment.ignore_build_cache,
             unprefixed_hash=deployment.unprefixed_hash,
-            urls=[
-                DeploymentURLDto(domain=url.domain, port=url.port)
-                for url in deployment.urls.all()
-            ],  # type: ignore
             service=ServiceSnapshot.from_dict(deployment.service_snapshot),  # type: ignore
             changes=[
                 DeploymentChangeDto.from_dict(
@@ -209,10 +205,6 @@ class DeploymentDetails:
             image_tag=await deployment.aimage_tag,
             ignore_build_cache=deployment.ignore_build_cache,
             unprefixed_hash=deployment.unprefixed_hash,
-            urls=[
-                DeploymentURLDto(domain=url.domain, port=url.port)
-                async for url in deployment.urls.all()
-            ],  # type: ignore
             service=ServiceSnapshot.from_dict(deployment.service_snapshot),  # type: ignore
             changes=[
                 DeploymentChangeDto.from_dict(
@@ -351,6 +343,19 @@ class EnvironmentDetails:
     id: str
     name: str
     project_id: str
+    compose_stacks: List["ComposeStackArchiveDetails"] = field(default_factory=list)
+
+    @classmethod
+    def from_environment(cls, env: "Environment"):
+        return cls(
+            id=env.id,
+            name=env.name,
+            project_id=env.project_id,  # type: ignore
+            compose_stacks=[
+                ComposeStackArchiveDetails(stack=stack.snapshot)
+                for stack in env.compose_stacks.filter(user_content__isnull=False).all()
+            ],
+        )
 
     @property
     def archive_workflow_id(self) -> str:
@@ -384,14 +389,24 @@ class HealthcheckDeploymentDetails:
 
 
 @dataclass
-class ServiceMetricsResult:
+class ContainerMetrics:
     cpu_percent: float
     memory_bytes: int
     net_tx_bytes: int
     net_rx_bytes: int
     disk_read_bytes: int
     disk_writes_bytes: int
+
+
+@dataclass
+class ServiceMetricsResult(ContainerMetrics):
     deployment: SimpleDeploymentDetails
+
+
+@dataclass
+class ComposeStackMetricsResult:
+    stack: ComposeStackSnapshot
+    services: Dict[str, ContainerMetrics]
 
 
 @dataclass
@@ -410,6 +425,12 @@ class CancelDeploymentSignalInput:
 @dataclass
 class CleanupResult:
     deleted_count: int
+
+
+@dataclass
+class CleanupMetricsResult:
+    service_metrics_deleted_count: int
+    stack_metrics_deleted_count: int
 
 
 @dataclass
@@ -601,8 +622,6 @@ class RegistryHealthCheckResult:
 @dataclass
 class ComposeStackArchiveDetails:
     stack: ComposeStackSnapshot
-    delete_configs: bool = True
-    delete_volumes: bool = True
 
 
 @dataclass
@@ -623,6 +642,10 @@ class ComposeStackArchiveResult:
 class ComposeStackDeploymentDetails:
     hash: str
     stack: ComposeStackSnapshot
+
+    @property
+    def workflow_id(self):
+        return f"deploy-compose-{self.stack.id}"
 
     @classmethod
     def from_deployment(
@@ -667,3 +690,10 @@ class ComposeStackMonitorPayload:
     status: str
     status_message: str
     deployment: ComposeStackDeploymentDetails
+
+
+@dataclass
+class ToggleComposeStackDetails:
+    stack: ComposeStackSnapshot
+    desired_state: Literal["start", "stop"]
+    only_service: Optional[str] = None

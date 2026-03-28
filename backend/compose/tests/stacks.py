@@ -33,6 +33,7 @@ from .fixtures import (
     DOCKER_COMPOSE_WITH_X_ENV_OVERRIDES,
     INVALID_COMPOSE_EMPTY,
     INVALID_COMPOSE_EMPTY_SERVICES,
+    INVALID_COMPOSE_VAR_SYNTAX,
     INVALID_COMPOSE_NO_IMAGE,
     INVALID_COMPOSE_NO_SERVICES,
     INVALID_COMPOSE_RELATIVE_BIND_VOLUME,
@@ -41,6 +42,7 @@ from .fixtures import (
     INVALID_COMPOSE_ROUTE_MISSING_PORT,
     INVALID_COMPOSE_SERVICE_NAME_SPECIAL,
     INVALID_COMPOSE_SERVICES_NOT_DICT,
+    INVALID_COMPOSE_DUPLICATE_CONFIG_TARGET,
     INVALID_COMPOSE_WITH_CONFIG_FILE_LOCATION,
     INVALID_COMPOSE_X_ENV_NOT_DICT,
     INVALID_COMPOSE_YAML_SYNTAX,
@@ -72,6 +74,135 @@ class ComposeStackAPITestBase(AuthAPITestCase):
             response.status_code, [status.HTTP_201_CREATED, status.HTTP_409_CONFLICT]
         )
         return await Project.objects.aget(slug=slug)
+
+    async def acreate_and_deploy_compose_stack(
+        self,
+        content: str,
+        slug="my-stack",
+    ):
+        project = await self.acreate_project(slug="compose")
+
+        create_stack_payload = {
+            "slug": slug,
+            "user_content": content,
+        }
+
+        response = await self.async_client.post(
+            reverse(
+                "compose:stacks.create",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                },
+            ),
+            data=create_stack_payload,
+        )
+        jprint(response.json())
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+
+        stack = cast(
+            ComposeStack, await ComposeStack.objects.filter(slug=slug).afirst()
+        )
+        self.assertIsNotNone(stack)
+        self.assertIsNone(stack.user_content)
+        self.assertIsNone(stack.computed_content)
+
+        # Deploy the stack
+        response = await self.async_client.put(
+            reverse(
+                "compose:stacks.deploy",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                    "slug": stack.slug,
+                },
+            ),
+        )
+        jprint(response.json())
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        await stack.arefresh_from_db()
+
+        return project, stack
+
+    def create_compose_stack(
+        self,
+        content: str,
+        slug="my-stack",
+    ):
+        project = self.create_project(slug="compose")
+
+        create_stack_payload = {
+            "slug": slug,
+            "user_content": content,
+        }
+
+        response = self.client.post(
+            reverse(
+                "compose:stacks.create",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                },
+            ),
+            data=create_stack_payload,
+        )
+        jprint(response.json())
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+
+        stack = cast(ComposeStack, ComposeStack.objects.filter(slug=slug).first())
+        self.assertIsNotNone(stack)
+        self.assertIsNone(stack.user_content)
+        self.assertIsNone(stack.computed_content)
+
+        return project, stack
+
+    def create_and_deploy_compose_stack(
+        self, content: str, slug="my-stack", project: Project | None = None
+    ):
+        if not project:
+            project = self.create_project(slug="compose")
+
+        create_stack_payload = {
+            "slug": slug,
+            "user_content": content,
+        }
+
+        response = self.client.post(
+            reverse(
+                "compose:stacks.create",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                },
+            ),
+            data=create_stack_payload,
+        )
+        jprint(response.json())
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code)
+
+        stack = cast(ComposeStack, ComposeStack.objects.filter(slug=slug).first())
+        self.assertIsNotNone(stack)
+        self.assertIsNone(stack.user_content)
+        self.assertIsNone(stack.computed_content)
+
+        # Deploy the stack
+        response = self.client.put(
+            reverse(
+                "compose:stacks.deploy",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                    "slug": stack.slug,
+                },
+            ),
+        )
+        jprint(response.json())
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+
+        stack.refresh_from_db()
+
+        return project, stack
 
 
 class CreateComposeStackViewTests(ComposeStackAPITestBase):
@@ -1381,6 +1512,29 @@ class CreateComposeStackViewTests(ComposeStackAPITestBase):
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
         self.assertIsNotNone(self.get_error_from_response(response, "user_content"))
 
+    def test_create_compose_stack_with_invalid_variable_syntax_fails(self):
+        project = self.create_project()
+
+        create_stack_payload = {
+            "slug": "empty-compose",
+            "user_content": INVALID_COMPOSE_VAR_SYNTAX,
+        }
+
+        response = self.client.post(
+            reverse(
+                "compose:stacks.create",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                },
+            ),
+            data=create_stack_payload,
+        )
+
+        jprint(response.json())
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIsNotNone(self.get_error_from_response(response, "user_content"))
+
     def test_create_compose_stack_with_no_services_fails(self):
         project = self.create_project()
 
@@ -1450,6 +1604,29 @@ class CreateComposeStackViewTests(ComposeStackAPITestBase):
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
         self.assertIsNotNone(self.get_error_from_response(response, "user_content"))
 
+    def test_create_compose_stack_with_duplicate_config_target_fails(self):
+        project = self.create_project()
+
+        create_stack_payload = {
+            "slug": "duplicate-config-target",
+            "user_content": INVALID_COMPOSE_DUPLICATE_CONFIG_TARGET,
+        }
+
+        response = self.client.post(
+            reverse(
+                "compose:stacks.create",
+                kwargs={
+                    "project_slug": project.slug,
+                    "env_slug": Environment.PRODUCTION_ENV_NAME,
+                },
+            ),
+            data=create_stack_payload,
+        )
+
+        jprint(response.json())
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertIsNotNone(self.get_error_from_response(response, "user_content"))
+
     def test_create_compose_stack_with_config_file_path_fails(self):
         project = self.create_project()
 
@@ -1494,10 +1671,11 @@ class CreateComposeStackViewTests(ComposeStackAPITestBase):
 
         jprint(response.json())
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIsNotNone(
-            self.get_error_from_response(
-                response, "services.web.deploy.labels.zane.http.routes.0.port"
-            )
+        error = cast(dict, self.get_error_from_response(response, "user_content"))
+
+        self.assertIsNotNone(error)
+        self.assertIn(
+            "services.web.deploy.labels.zane.http.routes.0.port", error["detail"]
         )
 
     def test_create_compose_stack_with_route_missing_domain_do_not_create_route(self):
@@ -1564,10 +1742,11 @@ class CreateComposeStackViewTests(ComposeStackAPITestBase):
 
         jprint(response.json())
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIsNotNone(
-            self.get_error_from_response(
-                response, "services.web.deploy.labels.zane.http.routes.0.port"
-            )
+        error = cast(dict, self.get_error_from_response(response, "user_content"))
+
+        self.assertIsNotNone(error)
+        self.assertIn(
+            "services.web.deploy.labels.zane.http.routes.0.port", error["detail"]
         )
 
     def test_create_compose_stack_with_route_port_negative_fails(self):
@@ -1591,10 +1770,11 @@ class CreateComposeStackViewTests(ComposeStackAPITestBase):
 
         jprint(response.json())
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIsNotNone(
-            self.get_error_from_response(
-                response, "services.web.deploy.labels.zane.http.routes.0.port"
-            )
+        error = cast(dict, self.get_error_from_response(response, "user_content"))
+
+        self.assertIsNotNone(error)
+        self.assertIn(
+            "services.web.deploy.labels.zane.http.routes.0.port", error["detail"]
         )
 
     def test_create_compose_stack_with_network_aliases(self):
@@ -1868,7 +2048,7 @@ class CreateComposeStackViewTests(ComposeStackAPITestBase):
 
         jprint(response.json())
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
-        self.assertIsNotNone(self.get_error_from_response(response, "x_zane_env"))
+        self.assertIsNotNone(self.get_error_from_response(response, "user_content"))
 
     def test_create_compose_with_x_env_in_config_content(self):
         """
