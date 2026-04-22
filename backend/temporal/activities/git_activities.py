@@ -989,6 +989,7 @@ class GitActivities:
         dockerfile_path = os.path.normpath(
             os.path.join(build_location, details.builder_options.dockerfile_path)
         )
+        os.makedirs(build_context_dir, exist_ok=True)
         build_envs = get_build_environment_variables_for_deployment(details.deployment)
 
         build_envs["FORCE_COLOR"] = "true"
