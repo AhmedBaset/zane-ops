@@ -419,6 +419,7 @@ class GitActivities:
                         activity.heartbeat(
                             "Heartbeat from `clone_repository_and_checkout_to_commit()`..."
                         )
+                        print("Heartbeat sent successfully")
                     except Exception as e:
                         # Log but swallow the exception so the heartbeat loop
                         # continues. The outer activity will still be cancelled

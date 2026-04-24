@@ -639,7 +639,7 @@ class DeployGitServiceWorkflow(BaseDeploymentWorklow):
                 ),
                 start_to_close_timeout=timedelta(minutes=2, seconds=30),
                 retry_policy=self.retry_policy,
-                heartbeat_timeout=timedelta(seconds=3),
+                heartbeat_timeout=timedelta(seconds=10),
             )
 
             monitor_task = asyncio.create_task(
