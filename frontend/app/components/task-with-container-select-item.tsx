@@ -15,6 +15,9 @@ export function TaskWithContainerSelectItem({
   container_id,
   status
 }: TaskWithContainerSelectItemProps) {
+  if (!container_id) {
+    return null;
+  }
   const color = TASK_STATUS_COLOR_MAP[status];
   const containerColor = stringToColor(container_id);
 

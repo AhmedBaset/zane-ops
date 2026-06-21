@@ -69,7 +69,7 @@ export default function ComposeStackServiceTerminalPage({
   const [, service] = serviceFound;
 
   const tasks = service.tasks
-    .filter((t) => t.container_id !== null)
+    .filter((t) => t.container_id != null && t.container_id !== "")
     .toSorted((tA, tB) => tB.version - tA.version) as Array<
     Omit<ComposeStackTask, "container_id"> & { container_id: string }
   >;
